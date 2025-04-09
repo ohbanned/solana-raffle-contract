@@ -1,0 +1,23 @@
+[package]
+name = "solcino"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+no-entrypoint = []
+
+[dependencies]
+solana-program = "1.14.17"
+solana-sdk = "1.14.17"
+thiserror = "1.0.40"
+spl-token = { version = "3.5.0", features = ["no-entrypoint"] }
+spl-associated-token-account = { version = "1.1.2", features = ["no-entrypoint"] }
+borsh = "0.10.3"
+switchboard-v2 = { version = "0.3.0", features = ["no-entrypoint"] }
+
+[dev-dependencies]
+solana-program-test = "1.14.17"
+# solana-sdk is already in [dependencies]
+
+[lib]
+crate-type = ["cdylib", "lib"]

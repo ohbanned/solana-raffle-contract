@@ -1,0 +1,33 @@
+# Rust build artifacts
+/target/
+**/target/
+**/*.rs.bk
+*.swp
+*.swo
+
+# Solana program artifacts
+/dist/
+.anchor
+.DS_Store
+
+# Build directories
+build/
+build_temp/
+temp_project/
+
+# IDEs and editors
+.idea/
+.vscode/
+*.sublime-*
+.project
+.classpath
+.settings
+
+# Cargo lock file (can be included, but often excluded for libraries)
+Cargo.lock
+
+# Node modules (for any JavaScript tools)
+node_modules/
+
+# Environment variables
+.env
