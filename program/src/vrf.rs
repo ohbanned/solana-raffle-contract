@@ -5,11 +5,13 @@ use solana_program::{
     msg,
     program_error::ProgramError,
     pubkey::Pubkey,
+    sysvar::Sysvar,
+    sysvar::recent_blockhashes::RecentBlockhashes,
+    program::invoke_signed,
 };
 use switchboard_v2::{
     VrfAccountData, 
     VrfRequestRandomness, 
-    SbState, 
     OracleQueueAccountData,
     SWITCHBOARD_PROGRAM_ID
 };
@@ -84,27 +86,116 @@ pub fn request_vrf_randomness<'a>(
         return Err(ProgramError::InvalidArgument);
     }
 
-    // Request randomness from the VRF account
-    let vrf_request_randomness = VrfRequestRandomness {
-        authority: authority_account_info.clone(),
-        vrf: vrf_account_info.clone(),
-        oracle_queue: oracle_queue_info.clone(),
-        queue_authority: authority_account_info.clone(),
-        data_buffer: oracle_queue.data_buffer,
-        permission: permission_account_info.cloned(),
-        escrow: escrow_account_info.cloned(),
-        payer_wallet: payer_wallet_info.cloned(),
-        payer: payer_account_info.clone(),
-        recent_blockhashes: recent_blockhashes_sysvar::id(),
-        program_state: SbState::get_state_address(),
-        token_program: spl_token::id(),
-    };
-
-    // Execute the request
-    vrf_request_randomness.invoke_signed(
-        switchboard_program, 
-        remaining_accounts, 
-        &[]
+    // Request randomness from the VRF account using the Switchboard program directly
+    // Build the accounts manually based on the Switchboard v0.3.0 API
+    let mut vrf_accounts = vec![
+        // 0. VRF account
+        vrf_account_info.clone(),
+        // 1. Oracle Queue account
+        oracle_queue_info.clone(),
+        // 2. Queue Authority
+        authority_account_info.clone(),
+        // 3. Data Buffer
+        AccountInfo::new(
+            &oracle_queue.data_buffer,
+            false,
+            false,
+            &solana_program::system_program::id(),
+            &solana_program::system_program::id(),
+            0,
+            0,
+        ),
+        // 4. Permission account (if provided)
+        permission_account_info.cloned().unwrap_or_else(|| {
+            AccountInfo::new(
+                &Pubkey::default(),
+                false,
+                false,
+                &solana_program::system_program::id(),
+                &solana_program::system_program::id(),
+                0,
+                0,
+            )
+        }),
+        // 5. Payer account
+        payer_account_info.clone(),
+        // 6. Escrow account (if provided)
+        escrow_account_info.cloned().unwrap_or_else(|| {
+            AccountInfo::new(
+                &Pubkey::default(),
+                false,
+                false,
+                &solana_program::system_program::id(),
+                &solana_program::system_program::id(),
+                0,
+                0,
+            )
+        }),
+        // 7. Payer wallet account (if provided)
+        payer_wallet_info.cloned().unwrap_or_else(|| {
+            AccountInfo::new(
+                &Pubkey::default(),
+                false,
+                false,
+                &solana_program::system_program::id(),
+                &solana_program::system_program::id(),
+                0,
+                0,
+            )
+        }),
+        // 8. Recent blockhashes sysvar
+        AccountInfo::new(
+            &solana_program::sysvar::recent_blockhashes::id(),
+            false,
+            false,
+            &solana_program::system_program::id(),
+            &solana_program::system_program::id(),
+            0,
+            0,
+        ),
+        // 9. Token program
+        AccountInfo::new(
+            &spl_token::id(),
+            false,
+            false,
+            &solana_program::system_program::id(),
+            &solana_program::system_program::id(),
+            0,
+            0,
+        ),
+        // 10. System program
+        AccountInfo::new(
+            &solana_program::system_program::id(),
+            false,
+            false,
+            &solana_program::system_program::id(),
+            &solana_program::system_program::id(),
+            0,
+            0,
+        ),
+    ];
+    
+    // Add any remaining accounts
+    vrf_accounts.extend_from_slice(remaining_accounts);
+    
+    // Build the instruction data
+    let instruction_data = vec![1u8]; // VRF request instruction = 1
+    
+    // Call the Switchboard program to request randomness
+    invoke_signed(
+        &solana_program::instruction::Instruction {
+            program_id: switchboard_program.key.clone(),
+            accounts: vrf_accounts.iter().map(|acc| {
+                solana_program::instruction::AccountMeta {
+                    pubkey: *acc.key,
+                    is_signer: acc.is_signer,
+                    is_writable: acc.is_writable,
+                }
+            }).collect(),
+            data: instruction_data,
+        },
+        &vrf_accounts,
+        &[],
     )?;
 
     msg!("VRF randomness request submitted successfully");
