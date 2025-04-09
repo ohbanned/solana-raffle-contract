@@ -1,6 +1,39 @@
-// Solcino Raffle Contract - Minimal Deployment Version
+// SolCino Raffle Contract - Deployment Version
 
-// This is a completely simplified version to get a successful build
-// for deployment purposes. We'll reintroduce proper functionality after deployment.
+use solana_program::{
+    account_info::AccountInfo,
+    entrypoint,
+    entrypoint::ProgramResult,
+    msg,
+    pubkey::Pubkey,
+};
 
-mod minimal;
+// Define a single program entrypoint here (not in raffle_entrypoint.rs)
+entrypoint!(process_instruction);
+
+// Simple processor that logs inputs and always succeeds
+pub fn process_instruction(
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    instruction_data: &[u8],
+) -> ProgramResult {
+    msg!("SolCino Raffle - Minimal Deployment Version");
+    
+    // Log account info
+    msg!("Number of accounts: {}", accounts.len());
+    for (i, account) in accounts.iter().enumerate() {
+        msg!("Account [{}]: {}", i, account.key);
+    }
+    
+    // Log instruction data
+    if !instruction_data.is_empty() {
+        msg!("Instruction data (first byte): {}", instruction_data[0]);
+        msg!("Instruction data length: {}", instruction_data.len());
+    } else {
+        msg!("No instruction data provided");
+    }
+    
+    // Always succeed for minimal version
+    msg!("Minimal processor completed successfully");
+    Ok(())
+}
