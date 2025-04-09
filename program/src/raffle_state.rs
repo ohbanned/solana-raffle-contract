@@ -55,6 +55,8 @@ pub struct Raffle {
     pub winner: Pubkey,
     /// Total tickets sold
     pub tickets_sold: u64,
+    /// Maximum number of tickets for the raffle
+    pub max_tickets: u64,
     /// Fee percentage (in basis points, e.g. 1000 = 10%)
     pub fee_basis_points: u16,
     /// Treasury account to receive fees
