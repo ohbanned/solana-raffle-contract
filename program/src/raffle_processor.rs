@@ -174,10 +174,25 @@ impl Processor {
             return Err(ProgramError::MissingRequiredSignature);
         }
         
-        // Ensure the raffle account signed the transaction (required for account creation)
-        if !raffle_info.is_signer {
-            msg!("Raffle account must sign the transaction");
-            return Err(ProgramError::MissingRequiredSignature);
+        // Get current time from the clock
+        let clock = Clock::from_account_info(clock_info)?;
+        let current_time = clock.unix_timestamp;
+        
+        // Derive the raffle PDA using the authority, current time, and title as seeds
+        let seeds = [
+            b"raffle",
+            authority_info.key.as_ref(),
+            &current_time.to_le_bytes(),
+            &title, // Use the title as part of the seed
+        ];
+        
+        // Find the PDA for the raffle account
+        let (expected_raffle_pubkey, bump_seed) = Pubkey::find_program_address(&seeds[..], program_id);
+        
+        // Verify the provided raffle account is the expected PDA
+        if *raffle_info.key != expected_raffle_pubkey {
+            msg!("Invalid raffle account address");
+            return Err(ProgramError::InvalidArgument);
         }
         
         // Create the raffle account if it doesn't exist or isn't owned by the program
@@ -191,8 +206,8 @@ impl Processor {
             let rent = Rent::get()?;
             let rent_lamports = rent.minimum_balance(space);
             
-            // Create account instruction
-            invoke(
+            // Create account instruction using PDA
+            invoke_signed(
                 &solana_program::system_instruction::create_account(
                     authority_info.key,
                     raffle_info.key,
@@ -205,6 +220,13 @@ impl Processor {
                     raffle_info.clone(),
                     system_program_info.clone(),
                 ],
+                &[&[
+                    b"raffle",
+                    authority_info.key.as_ref(),
+                    &current_time.to_le_bytes(),
+                    &title,
+                    &[bump_seed],
+                ]],
             )?;
             
             msg!("Raffle account created successfully");
@@ -233,8 +255,6 @@ impl Processor {
 
         // Calculate end time
         let end_time = current_time + duration as i64;
-
-        // Account creation is already handled above, no need to create it again
 
         // Initialize raffle data
         let raffle_data = Raffle {
