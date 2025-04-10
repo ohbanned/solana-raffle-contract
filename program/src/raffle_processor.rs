@@ -234,20 +234,7 @@ impl Processor {
         // Calculate end time
         let end_time = current_time + duration as i64;
 
-        // Create the raffle account
-        let rent = Rent::get()?;
-        let rent_lamports = rent.minimum_balance(Raffle::LEN);
-        
-        invoke(
-            &solana_program::system_instruction::create_account(
-                authority_info.key,
-                raffle_info.key,
-                rent_lamports,
-                Raffle::LEN as u64,
-                program_id,
-            ),
-            &[authority_info.clone(), raffle_info.clone()],
-        )?;
+        // Account creation is already handled above, no need to create it again
 
         // Initialize raffle data
         let raffle_data = Raffle {
