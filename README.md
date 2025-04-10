@@ -1,12 +1,14 @@
 # SolCino Raffle Program
 
-A Solana-based raffle program that enables secure, transparent, and automated raffles on the Solana blockchain. This program is part of the SolCino Casino Platform.
+A Solana-based raffle program that enables secure, transparent, and fully decentralized automated raffles on the Solana blockchain. This program is part of the SolCino Casino Platform.
 
 ## Table of Contents
 
 - [Overview](#overview)
 - [Features](#features)
 - [Architecture](#architecture)
+- [File Structure](#file-structure)
+- [Function Reference](#function-reference)
 - [Program Instructions](#program-instructions)
 - [Account Structure](#account-structure)
 - [Building and Deployment](#building-and-deployment)
@@ -16,9 +18,11 @@ A Solana-based raffle program that enables secure, transparent, and automated ra
 
 ## Overview
 
-SolCino Raffle Program is a fully on-chain raffle system that allows users to create raffles, purchase tickets, and automatically distribute prizes to winners. The program provides a transparent and fair raffle mechanism with configurable parameters.
+SolCino Raffle Program is a fully on-chain, decentralized raffle system that allows any user to create raffles, purchase tickets, and complete raffles with automatic prize distribution to winners. The program provides a transparent and fair raffle mechanism with configurable parameters.
 
 ## Features
+
+- **Fully Decentralized**: Anyone can create, enter, and complete raffles - no central authority
 
 - **Raffle Creation**: Create customizable raffles with configurable parameters
   - Title
@@ -27,6 +31,7 @@ SolCino Raffle Program is a fully on-chain raffle system that allows users to cr
   - Fixed fee percentage set globally in Config
 
 - **Ticket Purchase**: Users can buy multiple tickets for active raffles
+  - No limits on ticket purchases
   - SOL-based payments
   - Fee distribution to treasury
   - Automatic prize pool accumulation
@@ -34,8 +39,8 @@ SolCino Raffle Program is a fully on-chain raffle system that allows users to cr
 - **Raffle Completion**: Secure winner selection and prize distribution
   - Time-based completion
   - Switchboard VRF for provably fair randomness
-  - Two-step completion process for verified randomness
-  - Immediate prize distribution
+  - Immediate prize distribution to winner
+  - Secure and verifiable randomness
 
 ## Architecture
 
@@ -45,6 +50,114 @@ The program follows standard Solana program architecture with separation of conc
 - **Instructions**: Input validation and instruction handling
 - **Processor**: Business logic implementation for each instruction
 - **Error Handling**: Custom error types with descriptive messages
+
+## File Structure
+
+The SolCino Raffle program consists of the following source files (1,887 lines of code total):
+
+| File | Lines | Description |
+|------|-------|-------------|
+| **lib.rs** | 31 | Entry point to the program with module declarations |
+| **raffle_error.rs** | 58 | Error definitions used throughout the program |
+| **raffle_instruction.rs** | 494 | Instruction definitions, unpacking, and instruction creation helpers |
+| **raffle_processor.rs** | 851 | Core business logic for processing all program instructions |
+| **raffle_state.rs** | 245 | Data structures and serialization for on-chain state |
+| **utils.rs** | 37 | Utility functions for fee calculation and address derivation |
+| **vrf.rs** | 171 | Verifiable Random Function implementation for secure randomness |
+
+### lib.rs (31 lines)
+Defines the single entry point to the program and includes all modules.
+
+### raffle_error.rs (58 lines)
+Defines custom error types with descriptive messages for better debugging and user feedback.
+
+### raffle_instruction.rs (494 lines)
+Defines all available instructions, their account requirements, and parameter formats. Includes helper functions for creating instruction objects.
+
+### raffle_processor.rs (851 lines)
+Contains the implementation of all instruction processing logic, handling account validation, state updates, and token transfers.
+
+### raffle_state.rs (245 lines)
+Defines the data structures for storing raffle state on-chain, including serialization/deserialization methods.
+
+### utils.rs (37 lines)
+Provides utility functions used throughout the program, including fee calculations and address derivation.
+
+### vrf.rs (171 lines)
+Implements integration with Switchboard's Verifiable Random Function for secure, provable randomness in winner selection.
+
+## Function Reference
+
+Here's a comprehensive list of all public functions available in the SolCino Raffle program:
+
+### Client Instruction Functions
+These functions create instructions that can be included in transactions:
+
+```javascript
+// From raffle_instruction.rs
+
+// Initialize global configuration (admin only)
+initialize_config(program_id, admin, config_account, treasury, ticket_price, fee_basis_points)
+
+// Create a new raffle (anyone can call)
+initialize_raffle(program_id, initiator, raffle_account, config_account, title, duration)
+
+// Purchase tickets for a raffle (anyone can call)
+purchase_tickets(program_id, purchaser, raffle_account, ticket_purchase_account, treasury, ticket_count)
+
+// Request VRF randomness - Step 1 of completion (anyone can call)
+request_randomness(program_id, initiator, raffle_account, vrf_account, payer, switchboard_program, oracle_queue, remaining_accounts)
+
+// Complete raffle with VRF result - Step 2 of completion (anyone can call)
+complete_raffle_with_vrf(program_id, initiator, raffle_account, vrf_account, winner, switchboard_program)
+
+// Admin functions (require admin signature)
+update_admin(program_id, current_admin, new_admin, config_account)
+update_fee_address(program_id, admin, new_fee_address, config_account)
+update_ticket_price(program_id, admin, config_account, new_ticket_price)
+update_fee_percentage(program_id, admin, config_account, new_fee_basis_points)
+```
+
+### Utility Functions
+These helper functions are used internally and can be called from client code:
+
+```javascript
+// From utils.rs
+
+// Calculate fee amount based on input amount and basis points
+calculate_fee(amount, basis_points)
+
+// Calculate number of entries based on SOL amount
+calculate_entries(amount_lamports)
+
+// Find a program derived address for a raffle
+find_raffle_address(program_id, raffle_id)
+
+// Find a program derived address for a raffle entry
+find_entry_address(program_id, raffle_id, user)
+
+// Convert lamports to SOL (for display purposes)
+lamports_to_sol(lamports)
+
+// Convert SOL to lamports
+sol_to_lamports(sol)
+```
+
+### VRF Functions
+These functions handle secure randomness for winner selection:
+
+```javascript
+// From vrf.rs
+
+// Verifies and retrieves the result from a VRF account
+verify_vrf_result(vrf_account_info, switchboard_program)
+
+// Requests randomness from the Switchboard VRF
+request_vrf_randomness(vrf_account_info, payer_account_info, initiator_account_info, switchboard_program, oracle_queue_info, permission_account_info, escrow_account_info, payer_wallet_info, remaining_accounts)
+
+// Converts VRF random bytes into a ticket index for winner selection
+get_random_winner_index(vrf_result, total_tickets)
+```
 
 ## Program Instructions
 
