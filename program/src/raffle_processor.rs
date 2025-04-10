@@ -282,10 +282,13 @@ impl Processor {
             msg!("Raffle has ended");
             return Err(ProgramError::InvalidArgument);
         }
-
+        
         // Calculate total price and fee amount with overflow protection
         let total_price = ticket_count.checked_mul(raffle_data.ticket_price)
             .ok_or(ProgramError::InvalidArgument)?;
+        
+        msg!("Ticket price: {} lamports", raffle_data.ticket_price);
+        msg!("Total price for {} tickets: {} lamports", ticket_count, total_price);
         
         // Ensure the purchaser has sufficient funds
         if purchaser_info.lamports() < total_price {
@@ -296,13 +299,16 @@ impl Processor {
         
         // Calculate fee with overflow protection
         let fee_amount = crate::utils::calculate_fee(total_price, raffle_data.fee_basis_points);
+        msg!("Fee amount ({}%): {} lamports", raffle_data.fee_basis_points as f64 / 100.0, fee_amount);
         
         // Calculate raffle pool amount (total minus fee)
         let raffle_amount = total_price.checked_sub(fee_amount)
             .ok_or(ProgramError::InvalidArgument)?;
-
-        // Transfer fee to treasury
+        msg!("Raffle prize amount: {} lamports", raffle_amount);
+        
+        // Transfer fee to treasury if fee is greater than 0
         if fee_amount > 0 {
+            msg!("Transferring fee of {} lamports to treasury {}", fee_amount, treasury_info.key);
             invoke(
                 &solana_program::system_instruction::transfer(
                     purchaser_info.key,
@@ -315,9 +321,11 @@ impl Processor {
                     system_program_info.clone(),
                 ],
             )?;
+            msg!("Fee transfer successful");
         }
-
+        
         // Transfer remaining funds to the raffle account (prize pool)
+        msg!("Transferring {} lamports to raffle prize pool {}", raffle_amount, raffle_info.key);
         invoke(
             &solana_program::system_instruction::transfer(
                 purchaser_info.key,
@@ -330,8 +338,9 @@ impl Processor {
                 system_program_info.clone(),
             ],
         )?;
-
-        // Create ticket purchase record (if provided)
+        msg!("Prize pool transfer successful");
+        
+        // Check if ticket_purchase_info is already initialized
         if ticket_purchase_info.owner == program_id {
             // This is an existing record, update it
             let mut ticket_data = TicketPurchase::unpack(&ticket_purchase_info.data.borrow())?;
@@ -371,7 +380,62 @@ impl Processor {
                 return Err(ProgramError::InvalidArgument);
             }
             
-            // Create the ticket purchase account
+            msg!("Creating new ticket purchase record account");
+            invoke_signed(
+                &solana_program::system_instruction::create_account(
+                    purchaser_info.key,
+                    ticket_purchase_info.key,
+                    rent_lamports,
+                    TicketPurchase::LEN as u64,
+                    program_id,
+                ),
+                &[
+                    purchaser_info.clone(),
+                    ticket_purchase_info.clone(),
+                    system_program_info.clone(),
+                ],
+                &[&[
+                    b"ticket_purchase",
+                    raffle_info.key.as_ref(),
+                    purchaser_info.key.as_ref(),
+                    &[bump_seed],
+                ]],
+            )?;
+            
+            // Initialize ticket purchase data
+            let ticket_data = TicketPurchase {
+                is_initialized: true,
+                raffle: *raffle_info.key,
+                purchaser: *purchaser_info.key,
+                ticket_count,
+                purchase_time: current_time,
+            };
+            
+            // Save ticket data
+            TicketPurchase::pack(ticket_data, &mut ticket_purchase_info.data.borrow_mut())?;
+        } else {
+            // This is a new record, initialize it
+            // First, ensure the account has enough space
+            let rent = Rent::get()?;
+            let rent_lamports = rent.minimum_balance(TicketPurchase::LEN);
+            
+            // Derive PDA for the ticket purchase record
+            let (pda, bump_seed) = Pubkey::find_program_address(
+                &[
+                    b"ticket_purchase",
+                    raffle_info.key.as_ref(),
+                    purchaser_info.key.as_ref(),
+                ],
+                program_id,
+            );
+            
+            // Ensure we're using the correct PDA
+            if pda != *ticket_purchase_info.key {
+                msg!("Ticket purchase account address is incorrect");
+                return Err(ProgramError::InvalidArgument);
+            }
+            
+            msg!("Creating new ticket purchase record account");
             invoke_signed(
                 &solana_program::system_instruction::create_account(
                     purchaser_info.key,
