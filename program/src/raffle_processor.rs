@@ -168,6 +168,48 @@ impl Processor {
         let system_program_info = next_account_info(account_info_iter)?;
         let clock_info = next_account_info(account_info_iter)?;
 
+        // Ensure the authority signed the transaction
+        if !authority_info.is_signer {
+            msg!("Authority must sign the transaction");
+            return Err(ProgramError::MissingRequiredSignature);
+        }
+        
+        // Ensure the raffle account signed the transaction (required for account creation)
+        if !raffle_info.is_signer {
+            msg!("Raffle account must sign the transaction");
+            return Err(ProgramError::MissingRequiredSignature);
+        }
+        
+        // Create the raffle account if it doesn't exist or isn't owned by the program
+        if raffle_info.owner != program_id {
+            msg!("Creating new raffle account...");
+            
+            // Calculate the space required for the raffle account
+            let space = Raffle::LEN;
+            
+            // Calculate the rent-exempt balance
+            let rent = Rent::get()?;
+            let rent_lamports = rent.minimum_balance(space);
+            
+            // Create account instruction
+            invoke(
+                &solana_program::system_instruction::create_account(
+                    authority_info.key,
+                    raffle_info.key,
+                    rent_lamports,
+                    space as u64,
+                    program_id,
+                ),
+                &[
+                    authority_info.clone(),
+                    raffle_info.clone(),
+                    system_program_info.clone(),
+                ],
+            )?;
+            
+            msg!("Raffle account created successfully");
+        }
+
         // Load config to get ticket price and fee information
         let config_data = Config::unpack(&config_info.data.borrow())?;
 
@@ -177,11 +219,7 @@ impl Processor {
             return Err(ProgramError::IncorrectProgramId);
         }
 
-        // Any user can create a raffle
-        if !authority_info.is_signer {
-            msg!("Initiator must sign the transaction");
-            return Err(ProgramError::MissingRequiredSignature);
-        }
+        // Any user can create a raffle - this check is already done above
 
         // Validate config
         if !config_data.is_initialized {
