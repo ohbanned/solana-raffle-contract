@@ -3,8 +3,8 @@ use solana_program::{
     pubkey::Pubkey,
     clock::UnixTimestamp,
 };
+use arrayref::{array_ref, array_refs, mut_array_refs, array_mut_ref};
 use std::convert::TryFrom;
-use arrayref::{array_mut_ref, array_ref, array_refs, mut_array_refs};
 
 /// Status of a raffle
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -37,7 +37,7 @@ impl From<RaffleStatus> for u8 {
 }
 
 /// Raffle account data
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Raffle {
     /// Is the account initialized
     pub is_initialized: bool,
@@ -55,8 +55,6 @@ pub struct Raffle {
     pub winner: Pubkey,
     /// Total tickets sold
     pub tickets_sold: u64,
-    /// Maximum number of tickets for the raffle
-    pub max_tickets: u64,
     /// Fee percentage (in basis points, e.g. 1000 = 10%)
     pub fee_basis_points: u16,
     /// Treasury account to receive fees
@@ -68,7 +66,7 @@ pub struct Raffle {
 }
 
 /// Program configuration account
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Config {
     /// Is the account initialized
     pub is_initialized: bool,
@@ -83,7 +81,7 @@ pub struct Config {
 }
 
 /// Ticket purchase record
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct TicketPurchase {
     /// Is the account initialized
     pub is_initialized: bool,
@@ -120,7 +118,7 @@ impl IsInitialized for TicketPurchase {
 }
 
 impl Pack for Raffle {
-    const LEN: usize = 1 + 32 + 32 + 8 + 8 + 1 + 32 + 8 + 8 + 2 + 32 + 32 + 1;
+    const LEN: usize = 1 + 32 + 32 + 8 + 8 + 1 + 32 + 8 + 2 + 32 + 32 + 1;
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, solana_program::program_error::ProgramError> {
         let src = array_ref![src, 0, Raffle::LEN];
@@ -133,12 +131,11 @@ impl Pack for Raffle {
             status,
             winner,
             tickets_sold,
-            max_tickets,
             fee_basis_points,
             treasury,
             vrf_account,
             vrf_request_in_progress,
-        ) = array_refs![src, 1, 32, 32, 8, 8, 1, 32, 8, 8, 2, 32, 32, 1];
+        ) = array_refs![src, 1, 32, 32, 8, 8, 1, 32, 8, 2, 32, 32, 1];
 
         Ok(Raffle {
             is_initialized: is_initialized[0] != 0,
@@ -146,11 +143,9 @@ impl Pack for Raffle {
             title: *title,
             end_time: UnixTimestamp::from_le_bytes(*end_time),
             ticket_price: u64::from_le_bytes(*ticket_price),
-            status: RaffleStatus::try_from(status[0])
-                .map_err(|_| solana_program::program_error::ProgramError::InvalidAccountData)?,
+            status: RaffleStatus::try_from(status[0]).map_err(|_| solana_program::program_error::ProgramError::InvalidAccountData)?,
             winner: Pubkey::new_from_array(*winner),
             tickets_sold: u64::from_le_bytes(*tickets_sold),
-            max_tickets: u64::from_le_bytes(*max_tickets),
             fee_basis_points: u16::from_le_bytes(*fee_basis_points),
             treasury: Pubkey::new_from_array(*treasury),
             vrf_account: Pubkey::new_from_array(*vrf_account),
@@ -169,12 +164,11 @@ impl Pack for Raffle {
             status_dst,
             winner_dst,
             tickets_sold_dst,
-            max_tickets_dst,
             fee_basis_points_dst,
             treasury_dst,
             vrf_account_dst,
             vrf_request_in_progress_dst,
-        ) = mut_array_refs![dst, 1, 32, 32, 8, 8, 1, 32, 8, 8, 2, 32, 32, 1];
+        ) = mut_array_refs![dst, 1, 32, 32, 8, 8, 1, 32, 8, 2, 32, 32, 1];
 
         is_initialized_dst[0] = self.is_initialized as u8;
         authority_dst.copy_from_slice(self.authority.as_ref());
@@ -184,7 +178,6 @@ impl Pack for Raffle {
         status_dst[0] = self.status.into();
         winner_dst.copy_from_slice(self.winner.as_ref());
         *tickets_sold_dst = self.tickets_sold.to_le_bytes();
-        *max_tickets_dst = self.max_tickets.to_le_bytes();
         *fee_basis_points_dst = self.fee_basis_points.to_le_bytes();
         treasury_dst.copy_from_slice(self.treasury.as_ref());
         vrf_account_dst.copy_from_slice(self.vrf_account.as_ref());

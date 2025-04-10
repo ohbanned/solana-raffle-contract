@@ -7,12 +7,11 @@ use solana_program::{
     msg,
     program::{invoke, invoke_signed},
     program_error::ProgramError,
-    program_pack::{IsInitialized, Pack},
+    program_pack::Pack,
     pubkey::Pubkey,
     system_instruction,
     sysvar::{rent::Rent, Sysvar},
 };
-use std::mem;
 
 pub struct Processor;
 impl Processor {
@@ -104,17 +103,19 @@ impl Processor {
         )?;
 
         // Initialize raffle data
-        let mut raffle_data = Raffle {
+        let raffle_data = Raffle {
             is_initialized: true,
             authority: *authority_info.key,
             title,
             end_time,
-            ticket_price: config_data.ticket_price,  // Fixed price from config
+            ticket_price: config_data.ticket_price,  // Take ticket price from config
             status: RaffleStatus::Active,
-            winner: Pubkey::default(),
+            winner: Pubkey::default(),  // No winner initially
             tickets_sold: 0,
             fee_basis_points: config_data.fee_basis_points,  // Fixed fee from config
             treasury: config_data.treasury,  // Treasury from config
+            vrf_account: Pubkey::default(),  // Will be set when VRF is requested
+            vrf_request_in_progress: false,
         };
 
         // Save the raffle data
@@ -176,18 +177,18 @@ impl Processor {
 
         // Calculate total price
         let total_price = raffle_data.ticket_price.checked_mul(ticket_count)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
+            .ok_or(ProgramError::InvalidArgument)?;
 
         // Calculate fee amount
         let fee_amount = total_price
             .checked_mul(raffle_data.fee_basis_points as u64)
-            .ok_or(ProgramError::ArithmeticOverflow)?
+            .ok_or(ProgramError::InvalidArgument)?
             .checked_div(10000)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
+            .ok_or(ProgramError::InvalidArgument)?;
 
         // Calculate raffle pool amount (total minus fee)
         let raffle_amount = total_price.checked_sub(fee_amount)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
+            .ok_or(ProgramError::InvalidArgument)?;
 
         // Transfer fee to treasury
         if fee_amount > 0 {
@@ -232,7 +233,7 @@ impl Processor {
             
             // Update the ticket count
             ticket_data.ticket_count = ticket_data.ticket_count.checked_add(ticket_count)
-                .ok_or(ProgramError::ArithmeticOverflow)?;
+                .ok_or(ProgramError::InvalidArgument)?;
             ticket_data.purchase_time = current_time;
             
             // Save updated ticket data
@@ -296,7 +297,7 @@ impl Processor {
 
         // Update raffle data
         raffle_data.tickets_sold = raffle_data.tickets_sold.checked_add(ticket_count)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
+            .ok_or(ProgramError::InvalidArgument)?;
         Raffle::pack(raffle_data, &mut raffle_info.data.borrow_mut())?;
 
         msg!(
@@ -363,7 +364,7 @@ impl Processor {
         // Calculate a pseudo-random winner (using recent slot, timestamp, and other sources of entropy)
         // NOTE: This is not cryptographically secure random selection - in production,
         // you would use a VRF (Verifiable Random Function) or similar for true randomness.
-        let mut winner_ticket = ((current_time as u64) ^ (clock.slot)) % raffle_data.tickets_sold;
+        // Winning ticket selection now handled via VRF
         
         // Set the winner's pubkey to the provided account
         // In a real production system, we'd verify this is correct by querying all ticket purchases
@@ -379,7 +380,7 @@ impl Processor {
         
         **raffle_info.lamports.borrow_mut() = 0;
         **winner_info.lamports.borrow_mut() = winner_info.lamports().checked_add(prize_amount)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
+            .ok_or(ProgramError::InvalidArgument)?;
 
         msg!("Raffle completed! Winner: {}", winner_info.key);
         Ok(())
@@ -687,7 +688,7 @@ impl Processor {
         
         **raffle_info.lamports.borrow_mut() = 0;
         **winner_info.lamports.borrow_mut() = winner_info.lamports().checked_add(prize_amount)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
+            .ok_or(ProgramError::InvalidArgument)?;
 
         msg!("Raffle completed with VRF randomness! Winner: {}", winner_info.key);
         Ok(())
