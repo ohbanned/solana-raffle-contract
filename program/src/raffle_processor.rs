@@ -9,8 +9,6 @@ use solana_program::{
     program_error::ProgramError,
     program_pack::Pack,
     pubkey::Pubkey,
-    system_instruction,
-    system_program,
     sysvar::{rent::Rent, Sysvar},
 };
 
@@ -34,7 +32,7 @@ impl Processor {
                     fee_basis_points,
                     program_id,
                 )
-            },
+            }
             RaffleInstruction::InitializeRaffle {
                 title,
                 duration,
@@ -98,7 +96,7 @@ impl Processor {
         }
         
         // Check if we need to create the account (account doesn't exist yet)
-        if config_info.owner == &system_program::id() {
+        if config_info.owner != program_id {
             msg!("Creating new config account");
             // Get rent exemption amount
             let rent = Rent::get()?;
