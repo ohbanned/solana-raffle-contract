@@ -104,7 +104,7 @@ impl Processor {
             
             // Create the config account with the correct PDA
             invoke_signed(
-                &system_instruction::create_account(
+                &solana_program::system_instruction::create_account(
                     admin_info.key,
                     config_info.key,
                     rent_lamports,
@@ -201,7 +201,7 @@ impl Processor {
         let rent_lamports = rent.minimum_balance(Raffle::LEN);
         
         invoke(
-            &system_instruction::create_account(
+            &solana_program::system_instruction::create_account(
                 authority_info.key,
                 raffle_info.key,
                 rent_lamports,
@@ -304,7 +304,7 @@ impl Processor {
         // Transfer fee to treasury
         if fee_amount > 0 {
             invoke(
-                &system_instruction::transfer(
+                &solana_program::system_instruction::transfer(
                     purchaser_info.key,
                     treasury_info.key,
                     fee_amount,
@@ -319,7 +319,7 @@ impl Processor {
 
         // Transfer remaining funds to the raffle account (prize pool)
         invoke(
-            &system_instruction::transfer(
+            &solana_program::system_instruction::transfer(
                 purchaser_info.key,
                 raffle_info.key,
                 raffle_amount,
@@ -373,7 +373,7 @@ impl Processor {
             
             // Create the ticket purchase account
             invoke_signed(
-                &system_instruction::create_account(
+                &solana_program::system_instruction::create_account(
                     purchaser_info.key,
                     ticket_purchase_info.key,
                     rent_lamports,
