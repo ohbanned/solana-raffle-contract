@@ -1,24 +1,11 @@
 // Pot of Green Raffle Program - Utility Functions
 use solana_program::pubkey::Pubkey;
 
-/// Generate a pseudo-random value based on seed data and a maximum value
-pub fn generate_random_value(seed: &[u8], max: u64) -> u64 {
-    if max == 0 {
-        return 0;
-    }
-    
-    // Use the first 8 bytes of the seed as a u64
-    let mut bytes = [0u8; 8];
-    let len = std::cmp::min(seed.len(), 8);
-    bytes[..len].copy_from_slice(&seed[..len]);
-    
-    let random_value = u64::from_le_bytes(bytes);
-    random_value % max
-}
+// Removed pseudo-random value generation in favor of VRF
 
-/// Calculate fee amount based on input amount and percentage
-pub fn calculate_fee(amount: u64, percentage: u8) -> u64 {
-    (amount * percentage as u64) / 100
+/// Calculate fee amount based on input amount and basis points
+pub fn calculate_fee(amount: u64, basis_points: u16) -> u64 {
+    (amount * basis_points as u64) / 10000
 }
 
 /// Calculate number of entries based on SOL amount

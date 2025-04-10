@@ -48,10 +48,15 @@ impl Processor {
             RaffleInstruction::PurchaseTickets { ticket_count } => {
                 Self::process_purchase_tickets(accounts, ticket_count, program_id)
             }
-            RaffleInstruction::CompleteRaffle {} => Self::process_complete_raffle(accounts, program_id),
+            RaffleInstruction::CompleteRaffle {} => {
+                // Redirect to VRF implementation for all raffle completions
+                msg!("Non-VRF raffle completion is deprecated. Please use VRF implementation.");
+                return Err(ProgramError::InvalidInstructionData);
+            },
             RaffleInstruction::UpdateAdmin {} => Self::process_update_admin(accounts, program_id),
             RaffleInstruction::UpdateFeeAddress {} => Self::process_update_fee_address(accounts, program_id),
             RaffleInstruction::UpdateTicketPrice { new_ticket_price } => Self::process_update_ticket_price(accounts, new_ticket_price, program_id),
+            RaffleInstruction::UpdateFeePercentage { new_fee_basis_points } => Self::process_update_fee_percentage(accounts, new_fee_basis_points, program_id),
             RaffleInstruction::RequestRandomness {} => Self::process_request_randomness(accounts, program_id),
             RaffleInstruction::CompleteRaffleWithVrf {} => Self::process_complete_raffle_with_vrf(accounts, program_id),
         }
@@ -79,26 +84,25 @@ impl Processor {
             return Err(ProgramError::MissingRequiredSignature);
         }
         
-        // Ensure the config account is owned by our program
-        if *config_info.owner != *program_id {
-            msg!("Config account must be owned by this program");
-            // Create the config account 
+        // Find the PDA for the config account
+        let (expected_config_pubkey, bump_seed) = Pubkey::find_program_address(
+            &[b"config"],
+            program_id,
+        );
+
+        // Verify that the provided config account is the expected PDA
+        if *config_info.key != expected_config_pubkey {
+            msg!("Invalid config account address");
+            return Err(ProgramError::InvalidArgument);
+        }
+        
+        // Check if we need to create the account (account doesn't exist yet)
+        if config_info.owner == &system_program::id() {
+            msg!("Creating new config account");
             // Get rent exemption amount
             let rent = Rent::get()?;
             let rent_lamports = rent.minimum_balance(Config::LEN);
-        
-            // Find the PDA for the config account
-            let (expected_config_pubkey, bump_seed) = Pubkey::find_program_address(
-                &[b"config"],
-                program_id,
-            );
-        
-            // Verify that the provided config account is the expected PDA
-            if *config_info.key != expected_config_pubkey {
-                msg!("Invalid config account address");
-                return Err(ProgramError::InvalidArgument);
-            }
-        
+            
             // Create the config account with the correct PDA
             invoke_signed(
                 &system_instruction::create_account(
@@ -111,6 +115,10 @@ impl Processor {
                 &[admin_info.clone(), config_info.clone(), system_program_info.clone()],
                 &[&[b"config", &[bump_seed]]],
             )?;
+        } else if config_info.owner != program_id {
+            // Account exists but is owned by another program
+            msg!("Config account must be owned by this program");
+            return Err(ProgramError::IncorrectProgramId);
         }
         
         // Check if the config is already initialized
@@ -170,9 +178,9 @@ impl Processor {
             return Err(ProgramError::IncorrectProgramId);
         }
 
-        // Ensure the authority signed the transaction
+        // Any user can create a raffle
         if !authority_info.is_signer {
-            msg!("Authority must sign the transaction");
+            msg!("Initiator must sign the transaction");
             return Err(ProgramError::MissingRequiredSignature);
         }
 
@@ -232,6 +240,7 @@ impl Processor {
         ticket_count: u64,
         program_id: &Pubkey,
     ) -> ProgramResult {
+        // Validate ticket count - must be positive
         if ticket_count == 0 {
             msg!("Ticket count must be greater than zero");
             return Err(ProgramError::InvalidArgument);
@@ -272,22 +281,23 @@ impl Processor {
         // Check if raffle has ended
         if current_time >= raffle_data.end_time {
             msg!("Raffle has ended");
-            return Err(ProgramError::InvalidAccountData);
+            return Err(ProgramError::InvalidArgument);
         }
 
-        // No maximum ticket limit
-
-        // Calculate total price
-        let total_price = raffle_data.ticket_price.checked_mul(ticket_count)
-            .ok_or(ProgramError::InvalidArgument)?;
-
-        // Calculate fee amount
-        let fee_amount = total_price
-            .checked_mul(raffle_data.fee_basis_points as u64)
-            .ok_or(ProgramError::InvalidArgument)?
-            .checked_div(10000)
-            .ok_or(ProgramError::InvalidArgument)?;
-
+        // Calculate total price and fee amount with overflow protection
+        let total_price = ticket_count.checked_mul(raffle_data.ticket_price)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+        
+        // Ensure the purchaser has sufficient funds
+        if purchaser_info.lamports() < total_price {
+            msg!("Insufficient funds: needed {} lamports, had {} lamports", 
+                 total_price, purchaser_info.lamports());
+            return Err(ProgramError::InsufficientFunds);
+        }
+        
+        // Calculate fee with overflow protection
+        let fee_amount = crate::utils::calculate_fee(total_price, raffle_data.fee_basis_points);
+        
         // Calculate raffle pool amount (total minus fee)
         let raffle_amount = total_price.checked_sub(fee_amount)
             .ok_or(ProgramError::InvalidArgument)?;
@@ -421,9 +431,9 @@ impl Processor {
         let winner_info = next_account_info(account_info_iter)?;
         let clock_info = next_account_info(account_info_iter)?;
 
-        // Ensure the authority signed the transaction
+        // Any user can create a raffle
         if !authority_info.is_signer {
-            msg!("Authority must sign the transaction");
+            msg!("Initiator must sign the transaction");
             return Err(ProgramError::MissingRequiredSignature);
         }
 
@@ -435,11 +445,7 @@ impl Processor {
         // Get the raffle data
         let mut raffle_data = Raffle::unpack(&raffle_info.data.borrow())?;
 
-        // Check if the caller is the raffle authority
-        if raffle_data.authority != *authority_info.key {
-            msg!("Only the raffle authority can complete the raffle");
-            return Err(ProgramError::InvalidAccountData);
-        }
+        // Anyone can complete the raffle (fully decentralized approach)
 
         // Check if raffle is still active
         if raffle_data.status != RaffleStatus::Active {
@@ -454,7 +460,7 @@ impl Processor {
         // Check if raffle has ended
         if current_time < raffle_data.end_time {
             msg!("Raffle has not ended yet");
-            return Err(ProgramError::InvalidAccountData);
+            return Err(ProgramError::InvalidArgument);
         }
 
         // Check if any tickets were sold
@@ -568,6 +574,12 @@ impl Processor {
         new_ticket_price: u64,
         program_id: &Pubkey,
     ) -> ProgramResult {
+        // Validate that ticket price is not zero
+        if new_ticket_price == 0 {
+            msg!("Ticket price must be greater than zero");
+            return Err(ProgramError::InvalidArgument);
+        }
+        
         let account_info_iter = &mut accounts.iter();
         let admin_info = next_account_info(account_info_iter)?;
         let config_info = next_account_info(account_info_iter)?;
@@ -592,22 +604,61 @@ impl Processor {
             return Err(ProgramError::InvalidAccountData);
         }
 
-        // Validate new ticket price (can add your validation logic here if needed)
-        if new_ticket_price == 0 {
-            msg!("Ticket price cannot be zero");
-            return Err(ProgramError::InvalidArgument);
-        }
+        // No additional validation needed
 
         // Update ticket price
         config_data.ticket_price = new_ticket_price;
         Config::pack(config_data, &mut config_info.data.borrow_mut())?;
 
-        msg!("Ticket price updated successfully to: {} lamports", new_ticket_price);
+        msg!("Ticket price updated to {} lamports", config_data.ticket_price);
+
+        Ok(())
+    }
+
+    /// Process UpdateFeePercentage instruction
+    fn process_update_fee_percentage(
+        accounts: &[AccountInfo],
+        new_fee_basis_points: u16,
+        program_id: &Pubkey,
+    ) -> ProgramResult {
+        // Fee can be any value - no validation
+
+        let account_info_iter = &mut accounts.iter();
+        let admin_info = next_account_info(account_info_iter)?;
+        let config_info = next_account_info(account_info_iter)?;
         
-        // Show SOL equivalent for clarity
-        let sol_equivalent = new_ticket_price as f64 / 1_000_000_000.0;
-        msg!("New ticket price is approximately: {} SOL", sol_equivalent);
+        // Check program ownership
+        if config_info.owner != program_id {
+            return Err(ProgramError::IncorrectProgramId);
+        }
         
+        // Get config data
+        let mut config_data = Config::unpack(&config_info.data.borrow())?;
+        
+        // Verify admin authority
+        if config_data.admin != *admin_info.key {
+            msg!("Only the admin can update fee percentage");
+            return Err(ProgramError::InvalidAccountData);
+        }
+        
+        // Verify the admin signed the transaction
+        if !admin_info.is_signer {
+            return Err(ProgramError::MissingRequiredSignature);
+        }
+        
+        // Validate input
+        if new_fee_basis_points > 10000 {
+            msg!("Fee basis points cannot exceed 10000 (100%)");
+            return Err(ProgramError::InvalidArgument);
+        }
+        
+        // Update fee basis points
+        config_data.fee_basis_points = new_fee_basis_points;
+        
+        // Save updated config
+        Config::pack(config_data, &mut config_info.data.borrow_mut())?;
+        
+        msg!("Fee percentage updated to {}%", new_fee_basis_points as f32 / 100.0);
         Ok(())
     }
 
@@ -630,9 +681,9 @@ impl Processor {
         // Collect remaining accounts required by Switchboard
         let remaining_accounts: Vec<&AccountInfo> = account_info_iter.collect();
         
-        // Ensure the authority signed the transaction
+        // Any user can create a raffle
         if !authority_info.is_signer {
-            msg!("Authority must sign the transaction");
+            msg!("Initiator must sign the transaction");
             return Err(ProgramError::MissingRequiredSignature);
         }
 
@@ -650,12 +701,8 @@ impl Processor {
 
         // Get the raffle data
         let mut raffle_data = Raffle::unpack(&raffle_info.data.borrow())?;
-
-        // Check if the caller is the raffle authority
-        if raffle_data.authority != *authority_info.key {
-            msg!("Only the raffle authority can request randomness");
-            return Err(ProgramError::InvalidAccountData);
-        }
+        
+        // Anyone can request randomness for a raffle (fully decentralized approach)
 
         // Check if raffle is still active
         if raffle_data.status != RaffleStatus::Active {
@@ -684,7 +731,7 @@ impl Processor {
         request_vrf_randomness(
             vrf_account_info,
             payer_info, 
-            authority_info,
+            authority_info, // Now treated as initiator (can be any user)
             switchboard_program_info,
             oracle_queue_info,
             None, // permission_account_info
@@ -718,9 +765,9 @@ impl Processor {
         let switchboard_program_info = next_account_info(account_info_iter)?;
         let clock_info = next_account_info(account_info_iter)?;
 
-        // Ensure the authority signed the transaction
+        // Any user can create a raffle
         if !authority_info.is_signer {
-            msg!("Authority must sign the transaction");
+            msg!("Initiator must sign the transaction");
             return Err(ProgramError::MissingRequiredSignature);
         }
 
@@ -732,28 +779,24 @@ impl Processor {
         // Get the raffle data
         let mut raffle_data = Raffle::unpack(&raffle_info.data.borrow())?;
 
-        // Check if the caller is the raffle authority
-        if raffle_data.authority != *authority_info.key {
-            msg!("Only the raffle authority can complete the raffle");
-            return Err(ProgramError::InvalidAccountData);
-        }
+        // Anyone can complete the raffle (fully decentralized approach)
 
         // Check if raffle is still active
         if raffle_data.status != RaffleStatus::Active {
             msg!("Raffle is not active");
-            return Err(ProgramError::InvalidAccountData);
+            return Err(ProgramError::InvalidArgument);
         }
 
         // Check if VRF request is in progress
         if !raffle_data.vrf_request_in_progress {
             msg!("VRF request has not been initiated yet");
-            return Err(ProgramError::InvalidAccountData);
+            return Err(ProgramError::InvalidArgument);
         }
 
         // Check if VRF account matches
         if raffle_data.vrf_account != *vrf_account_info.key {
             msg!("VRF account does not match the one registered with this raffle");
-            return Err(ProgramError::InvalidAccountData);
+            return Err(ProgramError::InvalidArgument);
         }
 
         // Get the current time
@@ -763,7 +806,7 @@ impl Processor {
         // Check if raffle has ended
         if current_time < raffle_data.end_time {
             msg!("Raffle has not ended yet");
-            return Err(ProgramError::InvalidAccountData);
+            return Err(ProgramError::InvalidArgument);
         }
 
         // Verify VRF result
@@ -773,10 +816,20 @@ impl Processor {
         let winner_index = get_random_winner_index(vrf_result, raffle_data.tickets_sold);
         msg!("Random winner index: {}", winner_index);
 
-        // In a real implementation, we would look up the specific ticket purchase record
-        // Here we're using the provided winner account as a simplification
+        // Verify that the provided winner account matches the actual winner
+        // First, derive the expected PDA for the winner's ticket purchase
+        let (ticket_pda, _) = Pubkey::find_program_address(
+            &[b"ticket", raffle_info.key.as_ref(), winner_index.to_le_bytes().as_ref()],
+            program_id
+        );
         
-        // Set the winner's pubkey to the provided account
+        // Check if the provided winner account matches our derived PDA
+        if *winner_info.key != ticket_pda {
+            msg!("Provided winner account does not match the randomly selected winner");
+            return Err(ProgramError::InvalidArgument);
+        }
+        
+        // Set the winner's pubkey
         raffle_data.winner = *winner_info.key;
 
         // Update raffle status

@@ -32,13 +32,7 @@ pub enum RaffleError {
     #[error("Insufficient funds for operation")]
     InsufficientFunds,
     
-    /// Only the raffle authority can perform this action
-    #[error("Only the raffle authority can perform this action")]
-    NotRaffleAuthority,
-    
-    /// Raffle is not cancelled
-    #[error("Raffle is not cancelled")]
-    RaffleNotCancelled,
+    // NotRaffleAuthority error removed - platform is now fully decentralized
     
     /// Ticket purchase does not match
     #[error("Ticket purchase does not match raffle or purchaser")]

@@ -41,7 +41,7 @@ impl From<RaffleStatus> for u8 {
 pub struct Raffle {
     /// Is the account initialized
     pub is_initialized: bool,
-    /// Authority that can complete the raffle
+    /// Creator of the raffle (but anyone can complete the raffle - fully decentralized)
     pub authority: Pubkey,
     /// Title of the raffle (max 32 chars)
     pub title: [u8; 32],
