@@ -23,6 +23,17 @@ impl Processor {
         let instruction = RaffleInstruction::unpack(instruction_data)?;
 
         match instruction {
+            RaffleInstruction::InitializeConfig {
+                ticket_price,
+                fee_basis_points,
+            } => {
+                Self::process_initialize_config(
+                    accounts,
+                    ticket_price,
+                    fee_basis_points,
+                    program_id,
+                )
+            },
             RaffleInstruction::InitializeRaffle {
                 title,
                 duration,
@@ -44,6 +55,97 @@ impl Processor {
             RaffleInstruction::RequestRandomness {} => Self::process_request_randomness(accounts, program_id),
             RaffleInstruction::CompleteRaffleWithVrf {} => Self::process_complete_raffle_with_vrf(accounts, program_id),
         }
+    }
+
+    /// Process the InitializeConfig instruction
+    /// 
+    /// This initializes the global configuration for the raffle program
+    /// Only called once when the program is first deployed
+    fn process_initialize_config(
+        accounts: &[AccountInfo],
+        ticket_price: u64,
+        fee_basis_points: u16,
+        program_id: &Pubkey,
+    ) -> ProgramResult {
+        let account_info_iter = &mut accounts.iter();
+        let admin_info = next_account_info(account_info_iter)?;
+        let config_info = next_account_info(account_info_iter)?;
+        let treasury_info = next_account_info(account_info_iter)?;
+        let system_program_info = next_account_info(account_info_iter)?;
+        
+        // Verify the admin signed the transaction
+        if !admin_info.is_signer {
+            msg!("Admin must sign the transaction");
+            return Err(ProgramError::MissingRequiredSignature);
+        }
+        
+        // Ensure the config account is owned by our program
+        if *config_info.owner != *program_id {
+            msg!("Config account must be owned by this program");
+            // Create the config account 
+            // Get rent exemption amount
+            let rent = Rent::get()?;
+            let rent_lamports = rent.minimum_balance(Config::LEN);
+        
+            // Find the PDA for the config account
+            let (expected_config_pubkey, bump_seed) = Pubkey::find_program_address(
+                &[b"config"],
+                program_id,
+            );
+        
+            // Verify that the provided config account is the expected PDA
+            if *config_info.key != expected_config_pubkey {
+                msg!("Invalid config account address");
+                return Err(ProgramError::InvalidArgument);
+            }
+        
+            // Create the config account with the correct PDA
+            invoke_signed(
+                &system_instruction::create_account(
+                    admin_info.key,
+                    config_info.key,
+                    rent_lamports,
+                    Config::LEN as u64,
+                    program_id,
+                ),
+                &[admin_info.clone(), config_info.clone(), system_program_info.clone()],
+                &[&[b"config", &[bump_seed]]],
+            )?;
+        }
+        
+        // Check if the config is already initialized
+        if let Ok(config) = Config::unpack(&config_info.data.borrow()) {
+            if config.is_initialized {
+                msg!("Config account is already initialized");
+                return Err(ProgramError::AccountAlreadyInitialized);
+            }
+        }
+        
+        // Validate inputs
+        if fee_basis_points > 10000 {
+            msg!("Fee basis points cannot exceed 10000 (100%)");
+            return Err(ProgramError::InvalidArgument);
+        }
+        
+        // Initialize config data
+        let config_data = Config {
+            is_initialized: true,
+            admin: *admin_info.key,
+            treasury: *treasury_info.key,
+            ticket_price,
+            fee_basis_points,
+        };
+        
+        // Save the config data
+        Config::pack(config_data, &mut config_info.data.borrow_mut())?;
+        
+        msg!("Config initialized: Admin={}, Treasury={}, TicketPrice={}, Fee={}%",
+            admin_info.key,
+            treasury_info.key,
+            ticket_price,
+            fee_basis_points as f32 / 100.0);
+            
+        Ok(())
     }
 
     fn process_initialize_raffle(

@@ -10,12 +10,26 @@ use std::mem::size_of;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum RaffleInstruction {
+    /// Initialize the config for the raffle program
+    ///
+    /// Accounts expected:
+    /// 0. `[signer, writable]` The admin account who will have control over configuration
+    /// 1. `[writable]` The config account (PDA)
+    /// 2. `[]` Treasury account that will receive fees
+    /// 3. `[]` The system program
+    InitializeConfig {
+        /// Price per ticket in lamports (0.1 SOL = 100,000,000 lamports)
+        ticket_price: u64,
+        /// Fee percentage in basis points (e.g., 500 = 5%)
+        fee_basis_points: u16,
+    },
+    
     /// Initialize a new raffle
     ///
     /// Accounts expected:
     /// 0. `[signer, writable]` The authority/creator of the raffle who pays for the raffle account
     /// 1. `[writable]` The raffle account, must be uninitialized
-    /// 2. `[]` Treasury account to receive fees
+    /// 2. `[]` Config account with raffle settings
     /// 3. `[]` The system program
     /// 4. `[]` The clock sysvar
     InitializeRaffle {
@@ -106,6 +120,24 @@ impl RaffleInstruction {
 
         Ok(match tag {
             0 => {
+                if rest.len() < 10 {
+                    return Err(ProgramError::InvalidInstructionData);
+                }
+                
+                let ticket_price = rest[0..8].try_into()
+                    .map(u64::from_le_bytes)
+                    .map_err(|_| ProgramError::InvalidInstructionData)?;
+                
+                let fee_basis_points = rest[8..10].try_into()
+                    .map(u16::from_le_bytes)
+                    .map_err(|_| ProgramError::InvalidInstructionData)?;
+
+                Self::InitializeConfig {
+                    ticket_price,
+                    fee_basis_points,
+                }
+            },
+            1 => {
                 let title = {
                     let mut array = [0u8; 32];
                     let title_bytes = &rest[0..32.min(rest.len())];
@@ -120,19 +152,19 @@ impl RaffleInstruction {
                     duration,
                 }
             }
-            1 => {
+            2 => {
                 let ticket_count = rest[0..8].try_into().map(u64::from_le_bytes).map_err(|_| ProgramError::InvalidInstructionData)?;
                 Self::PurchaseTickets { ticket_count }
             }
-            2 => Self::CompleteRaffle {},
-            3 => Self::UpdateAdmin {},
-            4 => Self::UpdateFeeAddress {},
-            5 => {
+            3 => Self::CompleteRaffle {},
+            4 => Self::UpdateAdmin {},
+            5 => Self::UpdateFeeAddress {},
+            6 => {
                 let new_ticket_price = rest[0..8].try_into().map(u64::from_le_bytes).map_err(|_| ProgramError::InvalidInstructionData)?;
                 Self::UpdateTicketPrice { new_ticket_price }
             },
-            6 => Self::RequestRandomness {},
-            7 => Self::CompleteRaffleWithVrf {},
+            7 => Self::RequestRandomness {},
+            8 => Self::CompleteRaffleWithVrf {},
             _ => return Err(ProgramError::InvalidInstructionData),
         })
     }
@@ -142,28 +174,101 @@ impl RaffleInstruction {
         let mut buf = Vec::with_capacity(size_of::<Self>());
 
         match self {
-            Self::InitializeRaffle { title, duration } => {
+            Self::InitializeConfig { ticket_price, fee_basis_points } => {
                 buf.push(0);
+                buf.extend_from_slice(&ticket_price.to_le_bytes());
+                buf.extend_from_slice(&fee_basis_points.to_le_bytes());
+            }
+            Self::InitializeRaffle { title, duration } => {
+                buf.push(1);
                 buf.extend_from_slice(title);
                 buf.extend_from_slice(&duration.to_le_bytes());
             }
             Self::PurchaseTickets { ticket_count } => {
-                buf.push(1);
+                buf.push(2);
                 buf.extend_from_slice(&ticket_count.to_le_bytes());
             }
-            Self::CompleteRaffle {} => buf.push(2),
-            Self::UpdateAdmin {} => buf.push(3),
-            Self::UpdateFeeAddress {} => buf.push(4),
-            Self::UpdateTicketPrice { new_ticket_price } => {
+            Self::CompleteRaffle {} => {
+                buf.push(3);
+            }
+            Self::UpdateAdmin {} => {
+                buf.push(4);
+            }
+            Self::UpdateFeeAddress {} => {
                 buf.push(5);
+            }
+            Self::UpdateTicketPrice { new_ticket_price } => {
+                buf.push(6);
                 buf.extend_from_slice(&new_ticket_price.to_le_bytes());
-            },
-            Self::RequestRandomness {} => buf.push(6),
-            Self::CompleteRaffleWithVrf {} => buf.push(7),
+            }
+            Self::RequestRandomness {} => {
+                buf.push(7);
+            }
+            Self::CompleteRaffleWithVrf {} => {
+                buf.push(8);
+            }
         }
 
         buf
     }
+}
+
+/// Create initialize_config instruction
+pub fn initialize_config(
+    program_id: &Pubkey,
+    admin: &Pubkey,
+    config_account: &Pubkey,
+    treasury: &Pubkey,
+    ticket_price: u64,
+    fee_basis_points: u16,
+) -> Result<Instruction, ProgramError> {
+    let data = RaffleInstruction::InitializeConfig {
+        ticket_price,
+        fee_basis_points,
+    }
+    .pack();
+
+    let accounts = vec![
+        AccountMeta::new(*admin, true),
+        AccountMeta::new(*config_account, false),
+        AccountMeta::new_readonly(*treasury, false),
+        AccountMeta::new_readonly(system_program::id(), false),
+    ];
+
+    Ok(Instruction {
+        program_id: *program_id,
+        accounts,
+        data,
+    })
+}
+
+/// Create initialize_config instruction
+pub fn initialize_config(
+    program_id: &Pubkey,
+    admin: &Pubkey,
+    config_account: &Pubkey,
+    treasury: &Pubkey,
+    ticket_price: u64,
+    fee_basis_points: u16,
+) -> Result<Instruction, ProgramError> {
+    let data = RaffleInstruction::InitializeConfig {
+        ticket_price,
+        fee_basis_points,
+    }
+    .pack();
+
+    let accounts = vec![
+        AccountMeta::new(*admin, true),
+        AccountMeta::new(*config_account, false),
+        AccountMeta::new_readonly(*treasury, false),
+        AccountMeta::new_readonly(system_program::id(), false),
+    ];
+
+    Ok(Instruction {
+        program_id: *program_id,
+        accounts,
+        data,
+    })
 }
 
 /// Create initialize_raffle instruction
@@ -171,7 +276,7 @@ pub fn initialize_raffle(
     program_id: &Pubkey,
     authority: &Pubkey,
     raffle_account: &Pubkey,
-    treasury: &Pubkey,
+    config_account: &Pubkey,
     title: [u8; 32],
     duration: u64,
 ) -> Result<Instruction, ProgramError> {
@@ -184,7 +289,7 @@ pub fn initialize_raffle(
     let accounts = vec![
         AccountMeta::new(*authority, true),
         AccountMeta::new(*raffle_account, false),
-        AccountMeta::new_readonly(*treasury, false),
+        AccountMeta::new_readonly(*config_account, false),
         AccountMeta::new_readonly(system_program::id(), false),
         AccountMeta::new_readonly(clock::id(), false),
     ];
