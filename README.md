@@ -24,6 +24,11 @@ SolCino Raffle Program is a fully on-chain, decentralized raffle system that all
 
 - **Fully Decentralized**: Anyone can create, enter, and complete raffles - no central authority
 
+- **Secure Account Management**: Uses Program Derived Addresses (PDAs) for all critical accounts
+  - No private keys needed for raffle accounts
+  - Deterministic account derivation through on-chain seeds
+  - Enhanced security through program-owned accounts
+
 - **Raffle Creation**: Create customizable raffles with configurable parameters
   - Title
   - Duration
@@ -318,6 +323,7 @@ To integrate with the SolCino Raffle Program:
    - After end time has passed
    - Step 1: Call `request_randomness` instruction to request VRF randomness
    - Step 2: Once VRF result is ready, call `complete_raffle_with_vrf` instruction
+   - Winner's ticket record is a PDA derived from the raffle and ticket index
 
 4. **Admin Functions** (limited to deployer or designated admin):
    - Update admin address with `update_admin`
@@ -327,7 +333,8 @@ To integrate with the SolCino Raffle Program:
 ## Security Considerations
 
 - The raffle winner selection uses Switchboard's Verifiable Random Function (VRF) for secure and provably fair randomness.
-- Authority checks ensure only the raffle creator can complete raffles.
+- All critical accounts use Program Derived Addresses (PDAs) for enhanced security.
+- No private keys are needed for raffle accounts, eliminating the risk of key exposure.
 - Time-based constraints prevent early completion.
 - This is a fully decentralized platform with zero admin control over user funds or raffle outcomes.
 - Admin functionality is limited strictly to transferring admin rights and updating the fee collection address.
