@@ -451,61 +451,6 @@ impl Processor {
             
             // Save ticket data
             TicketPurchase::pack(ticket_data, &mut ticket_purchase_info.data.borrow_mut())?;
-        } else {
-            // This is a new record, initialize it
-            // First, ensure the account has enough space
-            let rent = Rent::get()?;
-            let rent_lamports = rent.minimum_balance(TicketPurchase::LEN);
-            
-            // Derive PDA for the ticket purchase record
-            let (pda, bump_seed) = Pubkey::find_program_address(
-                &[
-                    b"ticket_purchase",
-                    raffle_info.key.as_ref(),
-                    purchaser_info.key.as_ref(),
-                ],
-                program_id,
-            );
-            
-            // Ensure we're using the correct PDA
-            if pda != *ticket_purchase_info.key {
-                msg!("Ticket purchase account address is incorrect");
-                return Err(ProgramError::InvalidArgument);
-            }
-            
-            msg!("Creating new ticket purchase record account");
-            invoke_signed(
-                &solana_program::system_instruction::create_account(
-                    purchaser_info.key,
-                    ticket_purchase_info.key,
-                    rent_lamports,
-                    TicketPurchase::LEN as u64,
-                    program_id,
-                ),
-                &[
-                    purchaser_info.clone(),
-                    ticket_purchase_info.clone(),
-                    system_program_info.clone(),
-                ],
-                &[&[
-                    b"ticket_purchase",
-                    raffle_info.key.as_ref(),
-                    purchaser_info.key.as_ref(),
-                    &[bump_seed],
-                ]],
-            )?;
-            
-            // Initialize ticket purchase data
-            let ticket_data = TicketPurchase {
-                is_initialized: true,
-                raffle: *raffle_info.key,
-                purchaser: *purchaser_info.key,
-                ticket_count,
-                purchase_time: current_time,
-            };
-            
-            // Save ticket data
-            TicketPurchase::pack(ticket_data, &mut ticket_purchase_info.data.borrow_mut())?;
         }
 
         // Update raffle data
