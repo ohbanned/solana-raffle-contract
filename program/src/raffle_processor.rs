@@ -10,6 +10,7 @@ use solana_program::{
     program_pack::Pack,
     pubkey::Pubkey,
     system_instruction,
+    system_program,
     sysvar::{rent::Rent, Sysvar},
 };
 
@@ -286,7 +287,7 @@ impl Processor {
 
         // Calculate total price and fee amount with overflow protection
         let total_price = ticket_count.checked_mul(raffle_data.ticket_price)
-            .ok_or(ProgramError::ArithmeticOverflow)?;
+            .ok_or(ProgramError::InvalidArgument)?;
         
         // Ensure the purchaser has sufficient funds
         if purchaser_info.lamports() < total_price {
