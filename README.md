@@ -24,10 +24,10 @@ SolCino Raffle Program is a fully on-chain, decentralized raffle system that all
 
 - **Fully Decentralized**: Anyone can create, enter, and complete raffles - no central authority
 
-- **Secure Account Management**: Uses Program Derived Addresses (PDAs) for all critical accounts
-  - No private keys needed for raffle accounts
-  - Deterministic account derivation through on-chain seeds
-  - Enhanced security through program-owned accounts
+- **Secure Account Management**: Uses program-owned accounts for all critical operations
+  - Simple and reliable keypair-based account creation
+  - Straightforward account management
+  - Security through program ownership verification
 
 - **Raffle Creation**: Create customizable raffles with configurable parameters
   - Title
