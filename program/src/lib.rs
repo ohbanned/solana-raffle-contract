@@ -17,7 +17,7 @@ pub mod raffle_instruction;
 pub mod raffle_error;
 pub mod vrf;
 pub mod utils;
-pub mod raffle_processor;
+pub mod raffle_processor_keypair;
 
 // Process instruction just delegates to the Processor's process method
 pub fn process_instruction(
@@ -25,7 +25,7 @@ pub fn process_instruction(
     accounts: &[AccountInfo],
     instruction_data: &[u8],
 ) -> ProgramResult {
-    raffle_processor::Processor::process(program_id, accounts, instruction_data)
+    raffle_processor_keypair::Processor::process(program_id, accounts, instruction_data)
 }
 
 
