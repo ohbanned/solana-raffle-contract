@@ -1,7 +1,6 @@
 // Fixed imports to address compiler errors
 use crate::raffle_instruction::RaffleInstruction;
 use crate::raffle_state::{Config, Raffle, RaffleStatus, TicketPurchase};
-use crate::raffle_error::RaffleError;
 use crate::vrf;
 
 use solana_program::{
@@ -10,7 +9,7 @@ use solana_program::{
     msg,
     program::{invoke, invoke_signed},
     program_error::ProgramError,
-    program_pack::{IsInitialized, Pack},
+    program_pack::{Pack},
     pubkey::Pubkey,
     system_instruction,
     system_program,
@@ -670,7 +669,7 @@ impl Processor {
             None, // permission_account_info
             None, // escrow_account_info
             None, // payer_wallet_info
-            remaining_accounts, // Pass the references directly
+            &remaining_accounts, // Pass the references directly
         )?;
 
         // Update raffle to indicate VRF request is in progress
