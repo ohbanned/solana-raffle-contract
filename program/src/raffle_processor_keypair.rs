@@ -11,10 +11,10 @@ use solana_program::{
 };
 
 use crate::{
-    error::RaffleError,
-    instruction::RaffleInstruction,
-    state::{Config, Raffle, RaffleEntry, RaffleStatus},
-    vrf::request_randomness,
+    raffle_error::RaffleError,
+    raffle_instruction::RaffleInstruction,
+    raffle_state::{Config, Raffle, RaffleStatus, TicketPurchase},
+    vrf,
 };
 
 pub struct Processor;
@@ -357,7 +357,7 @@ impl Processor {
             Raffle::pack(raffle_data, &mut raffle_info.data.borrow_mut())?;
             
             // Request randomness from VRF
-            request_randomness(
+            vrf::request_vrf_randomness(
                 program_id,
                 raffle_info,
                 vrf_info,
