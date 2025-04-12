@@ -1,5 +1,8 @@
 use crate::raffle_instruction::RaffleInstruction;
 use crate::raffle_state::{Config, Raffle, RaffleStatus, TicketPurchase};
+use crate::raffle_error::RaffleError;
+use crate::vrf;
+
 use solana_program::{
     account_info::{next_account_info, AccountInfo},
     entrypoint::ProgramResult,
@@ -9,14 +12,8 @@ use solana_program::{
     program_pack::{IsInitialized, Pack},
     pubkey::Pubkey,
     system_instruction,
+    system_program,
     sysvar::{clock::Clock, rent::Rent, Sysvar},
-};
-
-use crate::{
-    error::RaffleError,
-    instruction::RaffleInstruction,
-    state::{Config, Raffle, RaffleEntry, RaffleStatus},
-    vrf::request_randomness,
 };
 
 pub struct Processor;
@@ -119,7 +116,7 @@ impl Processor {
             
             // Create the config account with the correct PDA
             invoke_signed(
-                &solana_program::system_instruction::create_account(
+                &system_instruction::create_account(
                     admin_info.key,
                     config_info.key,
                     rent_lamports,
@@ -310,7 +307,7 @@ impl Processor {
         if fee_amount > 0 {
             msg!("Transferring fee of {} lamports to treasury {}", fee_amount, treasury_info.key);
             invoke(
-                &solana_program::system_instruction::transfer(
+                &system_instruction::transfer(
                     purchaser_info.key,
                     treasury_info.key,
                     fee_amount,
@@ -327,7 +324,7 @@ impl Processor {
         // Transfer remaining funds to the raffle account (prize pool)
         msg!("Transferring {} lamports to raffle prize pool {}", raffle_amount, raffle_info.key);
         invoke(
-            &solana_program::system_instruction::transfer(
+            &system_instruction::transfer(
                 purchaser_info.key,
                 raffle_info.key,
                 raffle_amount,
@@ -607,7 +604,6 @@ fn process_complete_raffle(
         accounts: &[AccountInfo],
         program_id: &Pubkey,
     ) -> ProgramResult {
-        use crate::vrf::request_vrf_randomness;
         
         let account_info_iter = &mut accounts.iter();
         let authority_info = next_account_info(account_info_iter)?;
@@ -666,7 +662,7 @@ fn process_complete_raffle(
         }
 
         // Request VRF randomness from Switchboard
-        request_vrf_randomness(
+        vrf::request_vrf_randomness(
             vrf_account_info,
             payer_info, 
             authority_info, // Now treated as initiator (can be any user)
