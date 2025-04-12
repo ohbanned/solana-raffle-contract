@@ -90,6 +90,7 @@ pub fn verify_vrf_result<'a>(
 /// 2. Make a CPI call to the Switchboard program to request randomness
 /// 3. Update the raffle account to mark the VRF request as in progress
 /// 4. Store the VRF account in the raffle for later verification
+/// A simplified version that doesn't care about the remaining accounts
 pub fn request_vrf_randomness<'a>(
     vrf_account_info: &AccountInfo<'a>,
     payer_account_info: &AccountInfo<'a>, 
@@ -99,7 +100,7 @@ pub fn request_vrf_randomness<'a>(
     permission_account_info: Option<&AccountInfo<'a>>,
     escrow_account_info: Option<&AccountInfo<'a>>,
     payer_wallet_info: Option<&AccountInfo<'a>>,
-    remaining_accounts: &[AccountInfo<'a>],
+    _remaining_accounts: &[&AccountInfo<'a>],
 ) -> ProgramResult {
     // Validate signers
     if !payer_account_info.is_signer {
