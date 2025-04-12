@@ -611,8 +611,8 @@ impl Processor {
         let switchboard_program_info = next_account_info(account_info_iter)?;
         let oracle_queue_info = next_account_info(account_info_iter)?;
 
-        // For now, we don't actually use the remaining accounts in our simplified implementation
-        // so we'll pass an empty slice to satisfy the type requirements
+        // Collect the remaining accounts to pass to the VRF function
+        let remaining_accounts: Vec<&AccountInfo> = account_info_iter.collect();
         
         // Any user can create a raffle
         if !authority_info.is_signer {
@@ -669,7 +669,7 @@ impl Processor {
             None, // permission_account_info
             None, // escrow_account_info
             None, // payer_wallet_info
-            &[], // Empty slice to satisfy the type requirements
+            &remaining_accounts, // Pass the collected accounts
         )?;
 
         // Update raffle to indicate VRF request is in progress
