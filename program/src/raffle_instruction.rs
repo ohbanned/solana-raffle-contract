@@ -44,7 +44,7 @@ pub enum RaffleInstruction {
     /// Accounts expected:
     /// 0. `[signer, writable]` The ticket purchaser account (pays for tickets)
     /// 1. `[writable]` The raffle account
-    /// 2. `[writable]` The ticket purchase record account (PDA)
+    /// 2. `[writable]` The ticket purchase record account (pre-created keypair)
     /// 3. `[writable]` Treasury account to receive fees
     /// 4. `[]` The system program
     /// 5. `[]` The clock sysvar
