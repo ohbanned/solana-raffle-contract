@@ -337,26 +337,46 @@ impl Processor {
         )?;
         msg!("Prize pool transfer successful");
         
-        // Check if ticket_purchase_info is already initialized
+        // Handle ticket purchase account initialization
         if ticket_purchase_info.owner == program_id {
-            // This is an existing record, update it
-            let mut ticket_data = TicketPurchase::unpack(&ticket_purchase_info.data.borrow())?;
+            // Account is already owned by the program, check if it's initialized
+            let is_initialized = match ticket_purchase_info.try_data_len() {
+                Ok(len) if len >= 1 => ticket_purchase_info.data.borrow()[0] != 0,
+                _ => false,
+            };
             
-            // Ensure the purchase record belongs to this raffle and purchaser
-            if ticket_data.raffle != *raffle_info.key || ticket_data.purchaser != *purchaser_info.key {
-                msg!("Ticket purchase record does not match the raffle or purchaser");
-                return Err(ProgramError::InvalidAccountData);
+            if is_initialized {
+                // This is an existing record, update it
+                let mut ticket_data = TicketPurchase::unpack(&ticket_purchase_info.data.borrow())?;
+                
+                // Ensure the purchase record belongs to this raffle and purchaser
+                if ticket_data.raffle != *raffle_info.key || ticket_data.purchaser != *purchaser_info.key {
+                    msg!("Ticket purchase record does not match the raffle or purchaser");
+                    return Err(ProgramError::InvalidAccountData);
+                }
+                
+                // Update the ticket count
+                ticket_data.ticket_count = ticket_data.ticket_count.checked_add(ticket_count)
+                    .ok_or(ProgramError::InvalidArgument)?;
+                ticket_data.purchase_time = current_time;
+                
+                // Save updated ticket data
+                TicketPurchase::pack(ticket_data, &mut ticket_purchase_info.data.borrow_mut())?;
+            } else {
+                // Account is program-owned but not initialized - initialize it now
+                let ticket_data = TicketPurchase {
+                    is_initialized: true,
+                    raffle: *raffle_info.key,
+                    purchaser: *purchaser_info.key,
+                    ticket_count,
+                    purchase_time: current_time,
+                };
+                
+                // Pack the data into the account
+                TicketPurchase::pack(ticket_data, &mut ticket_purchase_info.data.borrow_mut())?;
             }
-            
-            // Update the ticket count
-            ticket_data.ticket_count = ticket_data.ticket_count.checked_add(ticket_count)
-                .ok_or(ProgramError::InvalidArgument)?;
-            ticket_data.purchase_time = current_time;
-            
-            // Save updated ticket data
-            TicketPurchase::pack(ticket_data, &mut ticket_purchase_info.data.borrow_mut())?;
         } else {
-            // This is a new ticket purchase account, we need proper initialization
+            // This is a new ticket purchase account not owned by the program
             // Verify the account is owned by the system program (uninitialized)
             if ticket_purchase_info.owner != &system_program::id() {
                 msg!("Ticket purchase account must be owned by system program initially");
