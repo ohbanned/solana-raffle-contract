@@ -77,6 +77,7 @@ impl Processor {
     /// 
     /// This initializes the global configuration for the raffle program
     /// Only called once when the program is first deployed
+    /// Now uses hardcoded default values for admin, treasury, ticket price, and fee
     fn process_initialize_config(
         accounts: &[AccountInfo],
         ticket_price: u64,
@@ -95,6 +96,9 @@ impl Processor {
             return Err(ProgramError::MissingRequiredSignature);
         }
         
+        // IMPORTANT: We now ignore the passed ticket_price and fee_basis_points parameters
+        // and use the default values from the Config struct
+        
         // Find the PDA for the config account
         let (expected_config_pubkey, bump_seed) = Pubkey::find_program_address(
             &[b"config"],
@@ -107,9 +111,9 @@ impl Processor {
             return Err(ProgramError::InvalidArgument);
         }
         
-        // Check if we need to create the account (account doesn't exist yet)
+        // Check if account exists and is owned by our program
         if config_info.owner != program_id {
-            msg!("Creating new config account");
+            msg!("Creating new config account with hardcoded values");
             // Get rent exemption amount
             let rent = Rent::get()?;
             let rent_lamports = rent.minimum_balance(Config::LEN);
@@ -124,36 +128,45 @@ impl Processor {
                     program_id,
                 ),
                 &[admin_info.clone(), config_info.clone(), system_program_info.clone()],
-                &[&[b"config", &[bump_seed]]],
+                &[&["config".as_bytes(), &[bump_seed]]],
             )?;
-        } else if config_info.owner != program_id {
-            // Account exists but is owned by another program
-            msg!("Config account must be owned by this program");
-            return Err(ProgramError::IncorrectProgramId);
-        }
+
+            // Initialize config data with DEFAULT values
+            // This will use hardcoded values for admin, treasury, ticket price, and fee
+            // regardless of who called the function or what parameters were passed
+            let config_data = Config::default();
+            msg!("Initializing config with hardcoded values:");
+            msg!("Admin: {}", config_data.admin.to_string());
+            msg!("Treasury: {}", config_data.treasury.to_string());
+            msg!("Ticket Price: {} lamports ({}SOL)", config_data.ticket_price, config_data.ticket_price as f64 / 1_000_000_000.0);
+            msg!("Fee: {} basis points ({}%)", config_data.fee_basis_points, config_data.fee_basis_points as f64 / 100.0);
+
+            Config::pack(config_data, &mut config_info.data.borrow_mut())?;
+            return Ok(());
+        } 
         
-        // Check if the config is already initialized
+        // If we get here, the account already exists and is owned by our program
+        // Check if it's already initialized
         if let Ok(config) = Config::unpack(&config_info.data.borrow()) {
             if config.is_initialized {
                 msg!("Config account is already initialized");
-                return Err(ProgramError::AccountAlreadyInitialized);
+                msg!("Current config values:");
+                msg!("Admin: {}", config.admin.to_string());
+                msg!("Treasury: {}", config.treasury.to_string());
+                msg!("Ticket Price: {} lamports ({}SOL)", config.ticket_price, config.ticket_price as f64 / 1_000_000_000.0);
+                msg!("Fee: {} basis points ({}%)", config.fee_basis_points, config.fee_basis_points as f64 / 100.0);
+                return Ok(());
             }
         }
         
-        // Validate inputs
-        if fee_basis_points > 10000 {
-            msg!("Fee basis points cannot exceed 10000 (100%)");
-            return Err(ProgramError::InvalidArgument);
-        }
-        
-        // Initialize config data
-        let config_data = Config {
-            is_initialized: true,
-            admin: *admin_info.key,
-            treasury: *treasury_info.key,
-            ticket_price,
-            fee_basis_points,
-        };
+        // If we get here, account exists but isn't initialized yet
+        // Initialize with hardcoded default values
+        let config_data = Config::default();
+        msg!("Initializing existing account with hardcoded values:");
+        msg!("Admin: {}", config_data.admin.to_string());
+        msg!("Treasury: {}", config_data.treasury.to_string());
+        msg!("Ticket Price: {} lamports ({}SOL)", config_data.ticket_price, config_data.ticket_price as f64 / 1_000_000_000.0);
+        msg!("Fee: {} basis points ({}%)", config_data.fee_basis_points, config_data.fee_basis_points as f64 / 100.0);
         
         // Save the config data
         Config::pack(config_data, &mut config_info.data.borrow_mut())?;
