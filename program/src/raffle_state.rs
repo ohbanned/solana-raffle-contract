@@ -80,6 +80,25 @@ pub struct Config {
     pub fee_basis_points: u16,
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        // Hardcoded values for admin and treasury
+        // Admin Address: ALUhG5kg3mje7LpX1uDCuconBh9ADNFYan1vzYLV54Au
+        // Ticket Price: 0.025 SOL = 25,000,000 lamports
+        // Fee: 10% = 1000 basis points
+        let admin_bytes = [161, 76, 122, 149, 74, 157, 76, 72, 74, 165, 29, 203, 173, 104, 219, 94, 65, 135, 93, 220, 121, 184, 162, 159, 101, 206, 241, 224, 169, 106, 148, 79];
+        let treasury_bytes = [161, 76, 122, 149, 74, 157, 76, 72, 74, 165, 29, 203, 173, 104, 219, 94, 65, 135, 93, 220, 121, 184, 162, 159, 101, 206, 241, 224, 169, 106, 148, 79];
+
+        Self {
+            is_initialized: true,
+            admin: Pubkey::new_from_array(admin_bytes),
+            treasury: Pubkey::new_from_array(treasury_bytes),
+            ticket_price: 25_000_000, // 0.025 SOL
+            fee_basis_points: 1000,    // 10%
+        }
+    }
+}
+
 /// Ticket purchase record
 #[derive(Debug, Clone, Copy)]
 pub struct TicketPurchase {

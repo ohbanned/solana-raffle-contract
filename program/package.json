@@ -1,0 +1,13 @@
+{
+  "name": "solcino-test",
+  "version": "1.0.0",
+  "description": "Tests for SolCino Raffle Contract",
+  "main": "test_live_contract.js",
+  "scripts": {
+    "test": "node test_live_contract.js"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.75.0",
+    "bn.js": "^5.2.1"
+  }
+}
