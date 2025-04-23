@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Raffle Completion Test</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #222;
+      color: #eee;
+    }
+    button {
+      background: #8860d0;
+      border: none;
+      color: white;
+      padding: 10px 20px;
+      margin: 10px 0;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    pre {
+      background: #333;
+      padding: 10px;
+      border-radius: 4px;
+      white-space: pre-wrap;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .success { color: #4CAF50; }
+    .error { color: #F44336; }
+    .warning { color: #FFC107; }
+    input, select {
+      padding: 8px;
+      margin: 5px 0;
+      width: 300px;
+      background: #444;
+      color: white;
+      border: 1px solid #666;
+    }
+    label {
+      display: block;
+      margin-top: 10px;
+    }
+    .section {
+      border: 1px solid #555;
+      padding: 15px;
+      margin: 15px 0;
+      border-radius: 4px;
+      background: #333;
+    }
+    .section h2 {
+      margin-top: 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Raffle Completion Test</h1>
+  <p>Test the raffle prize distribution mechanism</p>
+  
+  <div>
+    <label for="programId">Program ID:</label>
+    <input type="text" id="programId" value="HY3VX1HY6avWu5FZr3jnsZaztX3pjKfXnzASk2UVVQeL" placeholder="Enter your program ID">
+    
+    <button id="connectWallet">Connect Wallet</button>
+  </div>
+  
+  <div class="section">
+    <h2>1. Create Raffle</h2>
+    <label for="raffleName">Raffle Name:</label>
+    <input type="text" id="raffleName" value="Prize Test Raffle" placeholder="Enter raffle name">
+    
+    <label for="raffleDuration">Duration (seconds):</label>
+    <input type="number" id="raffleDuration" value="60" placeholder="Duration in seconds">
+    
+    <label for="raffleNonce">Nonce (unique ID):</label>
+    <input type="text" id="raffleNonce" value="" placeholder="Leave empty to use current timestamp" readonly>
+    
+    <button id="createRaffle">Create Raffle</button>
+    <div id="createResult"></div>
+  </div>
+  
+  <div class="section">
+    <h2>2. Purchase Tickets</h2>
+    <label for="raffleAddress">Raffle Address:</label>
+    <input type="text" id="raffleAddress" placeholder="Enter raffle address from step 1">
+    
+    <label for="ticketCount">Number of Tickets:</label>
+    <select id="ticketCount">
+      <option value="1">1 ticket</option>
+      <option value="2">2 tickets</option>
+      <option value="5">5 tickets</option>
+      <option value="10">10 tickets</option>
+    </select>
+    
+    <button id="createTicketAccount">2a. Create Ticket Account</button>
+    <div id="ticketAccountResult"></div>
+    
+    <label for="ticketAccountAddress">Ticket Account Address:</label>
+    <input type="text" id="ticketAccountAddress" placeholder="Enter the created ticket account address">
+    
+    <button id="purchaseTickets">2b. Purchase Tickets</button>
+    <div id="purchaseResult"></div>
+  </div>
+  
+  <div class="section">
+    <h2>3. VRF Setup</h2>
+    <p>To test the VRF completion flow, we'll create a mock VRF account.</p>
+    
+    <button id="createMockVRF">3a. Create Mock VRF Account</button>
+    <div id="vrfResult"></div>
+    
+    <label for="vrfAddress">VRF Account Address:</label>
+    <input type="text" id="vrfAddress" placeholder="VRF account address will appear here">
+  </div>
+  
+  <div class="section">
+    <h2>4. Request Randomness</h2>
+    <p>This initiates the first step of the raffle completion process.</p>
+    
+    <button id="requestRandomness">4a. Request Randomness</button>
+    <div id="requestResult"></div>
+  </div>
+  
+  <div class="section">
+    <h2>5. Prize Distribution</h2>
+    <p>Complete the raffle using the VRF result and distribute the prize.</p>
+    
+    <label for="walletAddress">Your Wallet Address:</label>
+    <input type="text" id="walletAddress" disabled placeholder="Your connected wallet address">
+    
+    <label for="ticketAddress">Ticket Account Address (Winner):</label>
+    <input type="text" id="ticketAddress" placeholder="Enter the ticket account address">
+    
+    <button id="checkBalances">5a. Check Current Balances</button>
+    <div id="balanceResult"></div>
+    
+    <button id="completeRaffle">5b. Complete Raffle with VRF</button>
+    <div id="completeResult"></div>
+    
+    <div id="rafflePrize" style="margin-top: 10px;"></div>
+  </div>
+  
+  <h3>Console Output:</h3>
+  <pre id="logger"></pre>
+  
+  <!-- Solana Web3 library -->
+  <script src="https://unpkg.com/@solana/web3.js@1.73.0/lib/index.iife.min.js"></script>
+  
+  <script>
+    // Helper to log to screen
+    function log(message, type = 'info') {
+      const logger = document.getElementById('logger');
+      const line = document.createElement('div');
+      line.textContent = message;
+      if (type) line.classList.add(type);
+      logger.prepend(line);
+      console.log(message);
+    }
+    
+    // Connect wallet
+    async function connectWallet() {
+      log('Connecting to wallet...');
+      try {
+        // Check if Phantom is available
+        if (typeof window.solana === 'undefined') {
+          throw new Error("Phantom wallet not found. Please install Phantom extension.");
+        }
+        
+        // Connect to wallet
+        await window.solana.connect();
+        const publicKey = window.solana.publicKey.toString();
+        log(`Connected to wallet: ${publicKey}`, 'success');
+        
+        // Set wallet address in the form
+        document.getElementById('walletAddress').value = publicKey;
+        
+        return true;
+      } catch (error) {
+        log(`Error connecting wallet: ${error.message}`, 'error');
+        return false;
+      }
+    }
+    
+    // Helper to find PDA
+    async function findPDA(seeds, programId) {
+      return await solanaWeb3.PublicKey.findProgramAddress(
+        seeds,
+        new solanaWeb3.PublicKey(programId)
+      );
+    }
+    
+    // Helper to convert number to buffer
+    function numberToBuffer(num) {
+      const view = new DataView(new ArrayBuffer(8));
+      view.setBigUint64(0, BigInt(num), true);
+      return new Uint8Array(view.buffer);
+    }
+    
+    // Helper to display transaction link
+    function displayTransactionLink(signature) {
+      return `https://explorer.solana.com/tx/${signature}?cluster=devnet`;
+    }
+    
+    // Format SOL amount
+    function formatSOL(lamports) {
+      return (lamports / solanaWeb3.LAMPORTS_PER_SOL).toFixed(9);
+    }
+    
+    // Create a raffle
+    async function createRaffle() {
+      const createResult = document.getElementById('createResult');
+      createResult.innerHTML = '<p>Creating raffle...</p>';
+      
+      try {
+        // Get program ID, raffle name, and duration
+        const programId = document.getElementById('programId').value.trim();
+        const raffleName = document.getElementById('raffleName').value.trim();
+        const raffleDuration = parseInt(document.getElementById('raffleDuration').value);
+        
+        if (!programId) throw new Error("Please enter your Program ID");
+        if (!raffleName) throw new Error("Please enter a raffle name");
+        if (isNaN(raffleDuration) || raffleDuration <= 0) throw new Error("Please enter a valid duration");
+        
+        // Check if connected
+        if (!window.solana || !window.solana.isConnected) {
+          const connected = await connectWallet();
+          if (!connected) return;
+        }
+        
+        const walletPublicKey = window.solana.publicKey;
+        log(`Creating raffle: "${raffleName}" with duration: ${raffleDuration} seconds`);
+        
+        // Create connection
+        const connection = new solanaWeb3.Connection("https://api.devnet.solana.com", "confirmed");
+        
+        // Find PDAs
+        const configSeed = new TextEncoder().encode("config");
+        const [configPDA] = await findPDA([configSeed], new solanaWeb3.PublicKey(programId));
+        
+        // Get or generate the nonce value
+        let nonce = document.getElementById('raffleNonce').value;
+        if (!nonce) {
+          nonce = Date.now().toString();
+          document.getElementById('raffleNonce').value = nonce;
+        }
+        log(`Using nonce: ${nonce}`);
+        
+        const nonceBuffer = numberToBuffer(nonce);
+        
+        const raffleSeed = new TextEncoder().encode("raffle");
+        const [rafflePDA] = await findPDA(
+          [raffleSeed, walletPublicKey.toBytes(), nonceBuffer],
+          new solanaWeb3.PublicKey(programId)
+        );
+        
+        log(`Using raffle PDA with nonce ${nonce}: ${rafflePDA.toString()}`);
+        log(`Config PDA: ${configPDA.toString()}`);
+        log(`Raffle PDA: ${rafflePDA.toString()}`);
+        
+        // Create instruction data
+        const dataBuffer = new Uint8Array(1 + 32 + 8 + 8);
+        dataBuffer[0] = 1; // Initialize raffle instruction
+        
+        // Set title (32 bytes, padded with zeros)
+        const titleBytes = new TextEncoder().encode(raffleName);
+        const paddedTitle = new Uint8Array(32).fill(0);
+        paddedTitle.set(titleBytes.slice(0, 32));
+        dataBuffer.set(paddedTitle, 1);
+        
+        // Set duration (8 bytes)
+        const durationView = new DataView(new ArrayBuffer(8));
+        durationView.setBigUint64(0, BigInt(raffleDuration), true);
+        const durationBytes = new Uint8Array(durationView.buffer);
+        dataBuffer.set(durationBytes, 33);
+        
+        // Set nonce (8 bytes)
+        const nonceView = new DataView(new ArrayBuffer(8));
+        nonceView.setBigUint64(0, BigInt(nonce), true);
+        const nonceBytes = new Uint8Array(nonceView.buffer);
+        dataBuffer.set(nonceBytes, 41);
+        
+        // Create transaction
+        const transaction = new solanaWeb3.Transaction();
+        const { blockhash } = await connection.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = walletPublicKey;
+        
+        // Add initialize raffle instruction
+        transaction.add({
+          keys: [
+            { pubkey: walletPublicKey, isSigner: true, isWritable: true }, // Authority
+            { pubkey: rafflePDA, isSigner: false, isWritable: true },      // Raffle Account
+            { pubkey: configPDA, isSigner: false, isWritable: false },     // Config Account
+            { pubkey: solanaWeb3.SystemProgram.programId, isSigner: false, isWritable: false }, // System Program
+            { pubkey: solanaWeb3.SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false } // Clock Sysvar
+          ],
+          programId: new solanaWeb3.PublicKey(programId),
+          data: dataBuffer
+        });
+        
+        // Sign transaction
+        const signed = await window.solana.signTransaction(transaction);
+        
+        // Send transaction
+        const signature = await connection.sendRawTransaction(signed.serialize());
+        
+        // Wait for confirmation
+        const confirmation = await connection.confirmTransaction(signature);
+        if (confirmation.value.err) {
+          throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+        }
+        
+        log(`Raffle created successfully!`, 'success');
+        
+        // Update the UI with the result
+        createResult.innerHTML = `
+          <p class="success">Raffle created successfully!</p>
+          <p>Raffle Address: <strong>${rafflePDA.toString()}</strong></p>
+          <p><a href="${displayTransactionLink(signature)}" target="_blank">View on Explorer</a></p>
+        `;
+        
+        // Auto-populate the raffle address for the next steps
+        document.getElementById('raffleAddress').value = rafflePDA.toString();
+        
+        return rafflePDA.toString();
+      } catch (err) {
+        log(`Error creating raffle: ${err.message}`, 'error');
+        createResult.innerHTML = `<p class="error">Error: ${err.message}</p>`;
+        
+        if (err.logs) {
+          log(`Error logs: ${err.logs.join('\n')}`, 'error');
+        }
+      }
+    }
+
+    // Create a keypair for the ticket account
+    async function createTicketAccount() {
+      const ticketAccountResult = document.getElementById('ticketAccountResult');
+      ticketAccountResult.innerHTML = '<p>Creating ticket account...</p>';
+      
+      try {
+        const programId = document.getElementById('programId').value.trim();
+        const raffleAddress = document.getElementById('raffleAddress').value.trim();
+        
+        if (!programId) throw new Error("Please enter your Program ID");
+        if (!raffleAddress) throw new Error("Please enter the raffle address");
+        
+        // Check if connected
+        if (!window.solana || !window.solana.isConnected) {
+          const connected = await connectWallet();
+          if (!connected) return;
+        }
+        
+        const walletPublicKey = window.solana.publicKey;
+        
+        // Create connection
+        const connection = new solanaWeb3.Connection("https://api.devnet.solana.com", "confirmed");
+        
+        // Generate a new keypair for the ticket account
+        const ticketKeypair = solanaWeb3.Keypair.generate();
+        log(`Generated ticket account keypair: ${ticketKeypair.publicKey.toString()}`);
+        
+        // Calculate the space needed for ticket purchase data
+        // struct TicketPurchase { is_initialized: bool, raffle: Pubkey, purchaser: Pubkey, ticket_count: u64, purchase_time: i64 }
+        // 1 + 32 + 32 + 8 + 8 = 81 bytes
+        const TICKET_PURCHASE_SIZE = 81;
+        
+        // Calculate the rent-exempt balance
+        const rentExemptBalance = await connection.getMinimumBalanceForRentExemption(TICKET_PURCHASE_SIZE);
+        
+        // Create a transaction to create the account
+        const transaction = new solanaWeb3.Transaction();
+        
+        // Add create account instruction
+        transaction.add(
+          solanaWeb3.SystemProgram.createAccount({
+            fromPubkey: walletPublicKey,
+            newAccountPubkey: ticketKeypair.publicKey,
+            lamports: rentExemptBalance,
+            space: TICKET_PURCHASE_SIZE,
+            programId: new solanaWeb3.PublicKey(programId)
+          })
+        );
+        
+        // Sign transaction with both wallet and new keypair
+        const { blockhash } = await connection.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = walletPublicKey;
+        
+        // Need to sign with both
+        transaction.sign(ticketKeypair);
+        
+        const signed = await window.solana.signTransaction(transaction);
+        
+        // Need to add the ticket keypair signature
+        const ticketSignature = ticketKeypair.secretKey;
+        
+        // Send the transaction
+        const signature = await connection.sendRawTransaction(signed.serialize(), {
+          skipPreflight: true
+        });
+        
+        log(`Created ticket account. Signature: ${signature}`);
+        
+        // Wait for confirmation
+        const confirmation = await connection.confirmTransaction(signature);
+        if (confirmation.value.err) {
+          throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+        }
+        
+        log(`Ticket account created successfully!`, 'success');
+        
+        ticketAccountResult.innerHTML = `
+          <p class="success">Ticket account created successfully!</p>
+          <p>Ticket Account: <strong>${ticketKeypair.publicKey.toString()}</strong></p>
+          <p><a href="${displayTransactionLink(signature)}" target="_blank">View on Explorer</a></p>
+        `;
+        
+        // Auto-populate the ticket account addresses for the next steps
+        document.getElementById('ticketAccountAddress').value = ticketKeypair.publicKey.toString();
+        document.getElementById('ticketAddress').value = ticketKeypair.publicKey.toString();
+        
+        // Export the keypair for later use
+        const exportedKeypair = Array.from(ticketKeypair.secretKey);
+        localStorage.setItem('ticketKeypair', JSON.stringify(exportedKeypair));
+        
+        return ticketKeypair.publicKey.toString();
+      } catch (err) {
+        log(`Error creating ticket account: ${err.message}`, 'error');
+        ticketAccountResult.innerHTML = `<p class="error">Error: ${err.message}</p>`;
+        
+        if (err.logs) {
+          log(`Error logs: ${err.logs.join('\n')}`, 'error');
+        }
+      }
+    }
+    
+    // Purchase tickets
+    async function purchaseTickets() {
+      const purchaseResult = document.getElementById('purchaseResult');
+      purchaseResult.innerHTML = '<p>Purchasing tickets...</p>';
+      
+      try {
+        // Get program ID, raffle address, and ticket count
+        const programId = document.getElementById('programId').value.trim();
+        const raffleAddress = document.getElementById('raffleAddress').value.trim();
+        const ticketAccountAddress = document.getElementById('ticketAccountAddress').value.trim();
+        const ticketCount = parseInt(document.getElementById('ticketCount').value);
+        
+        if (!programId) throw new Error("Please enter your Program ID");
+        if (!raffleAddress) throw new Error("Please enter the raffle address");
+        if (!ticketAccountAddress) throw new Error("Please enter the ticket account address");
+        if (isNaN(ticketCount) || ticketCount <= 0) throw new Error("Please select a valid ticket count");
+        
+        // Check if connected
+        if (!window.solana || !window.solana.isConnected) {
+          const connected = await connectWallet();
+          if (!connected) return;
+        }
+        
+        const walletPublicKey = window.solana.publicKey;
+        log(`Purchasing ${ticketCount} ticket(s) for raffle: ${raffleAddress}`);
+        
+        // Create connection
+        const connection = new solanaWeb3.Connection("https://api.devnet.solana.com", "confirmed");
+        
+        // Get the raffle and ticket pubkeys
+        const rafflePubkey = new solanaWeb3.PublicKey(raffleAddress);
+        const ticketPubkey = new solanaWeb3.PublicKey(ticketAccountAddress);
+        
+        // Find the config PDA
+        const configSeed = new TextEncoder().encode("config");
+        const [configPDA] = await findPDA([configSeed], new solanaWeb3.PublicKey(programId));
+        
+        // Get config data to find treasury
+        const configInfo = await connection.getAccountInfo(configPDA);
+        if (!configInfo) throw new Error("Config account not found");
+        
+        // Treasury is at offset 1 + 32 in the config (is_initialized + admin pubkey)
+        const treasuryPubkey = new solanaWeb3.PublicKey(configInfo.data.slice(1 + 32, 1 + 32 + 32));
+        log(`Treasury address: ${treasuryPubkey.toString()}`);
+        
+        // Create instruction data for purchase tickets
+        const dataBuffer = new Uint8Array(1 + 8);
+        dataBuffer[0] = 2; // Purchase tickets instruction
+        
+        // Set ticket count (8 bytes)
+        const ticketCountView = new DataView(new ArrayBuffer(8));
+        ticketCountView.setBigUint64(0, BigInt(ticketCount), true);
+        const ticketCountBytes = new Uint8Array(ticketCountView.buffer);
+        dataBuffer.set(ticketCountBytes, 1);
+        
+        // Create transaction
+        const transaction = new solanaWeb3.Transaction();
+        const { blockhash } = await connection.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = walletPublicKey;
+        
+        // Add purchase tickets instruction based on the expected accounts in the contract
+        transaction.add({
+          keys: [
+            { pubkey: walletPublicKey, isSigner: true, isWritable: true },  // Purchaser
+            { pubkey: rafflePubkey, isSigner: false, isWritable: true },    // Raffle Account
+            { pubkey: ticketPubkey, isSigner: false, isWritable: true },    // Ticket Account (pre-created)
+            { pubkey: treasuryPubkey, isSigner: false, isWritable: true },  // Treasury account from config
+            { pubkey: solanaWeb3.SystemProgram.programId, isSigner: false, isWritable: false }, // System Program
+            { pubkey: solanaWeb3.SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false }  // Clock Sysvar
+          ],
+          programId: new solanaWeb3.PublicKey(programId),
+          data: dataBuffer
+        });
+        
+        // Sign transaction
+        const signed = await window.solana.signTransaction(transaction);
+        
+        // Send transaction
+        const signature = await connection.sendRawTransaction(signed.serialize());
+        
+        // Wait for confirmation
+        log("Waiting for transaction confirmation...");
+        const confirmation = await connection.confirmTransaction(signature);
+        if (confirmation.value.err) {
+          throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+        }
+        
+        log(`Tickets purchased successfully!`, 'success');
+        
+        // Update the UI with the result
+        purchaseResult.innerHTML = `
+          <p class="success">Successfully purchased ${ticketCount} ticket(s)!</p>
+          <p><a href="${displayTransactionLink(signature)}" target="_blank">View on Explorer</a></p>
+        `;
+        
+        // Check raffle account balance
+        const raffleBalance = await connection.getBalance(rafflePubkey);
+        log(`Raffle prize pool: ${formatSOL(raffleBalance)} SOL`, 'success');
+        
+        // Update the prize display
+        document.getElementById('rafflePrize').innerHTML = `
+          <p class="success">Current raffle prize pool: ${formatSOL(raffleBalance)} SOL</p>
+        `;
+        
+        return true;
+      } catch (err) {
+        log(`Error purchasing tickets: ${err.message}`, 'error');
+        purchaseResult.innerHTML = `<p class="error">Error: ${err.message}</p>`;
+        
+        if (err.logs) {
+          log(`Error logs: ${err.logs.join('\n')}`, 'error');
+        }
+      }
+    }
+    
+    // Check balances for prize distribution
+    async function checkBalances() {
+      const balanceResult = document.getElementById('balanceResult');
+      balanceResult.innerHTML = '<p>Checking balances...</p>';
+      
+      try {
+        // Get the addresses
+        const raffleAddress = document.getElementById('raffleAddress').value.trim();
+        const ticketAddress = document.getElementById('ticketAddress').value.trim();
+        
+        if (!raffleAddress) throw new Error("Please enter the raffle address");
+        if (!ticketAddress) throw new Error("Please enter the ticket/winner address");
+        
+        // Create connection
+        const connection = new solanaWeb3.Connection("https://api.devnet.solana.com", "confirmed");
+        
+        // Convert to public keys
+        const rafflePubkey = new solanaWeb3.PublicKey(raffleAddress);
+        const ticketPubkey = new solanaWeb3.PublicKey(ticketAddress);
+        
+        // Get balances
+        const raffleBalance = await connection.getBalance(rafflePubkey);
+        const ticketBalance = await connection.getBalance(ticketPubkey);
+        
+        log(`Raffle account balance: ${formatSOL(raffleBalance)} SOL`);
+        log(`Ticket account balance: ${formatSOL(ticketBalance)} SOL`);
+        
+        // Update the UI with the result
+        balanceResult.innerHTML = `
+          <p>Current balances:</p>
+          <p>Raffle account: <strong>${formatSOL(raffleBalance)} SOL</strong></p>
+          <p>Ticket account (Winner): <strong>${formatSOL(ticketBalance)} SOL</strong></p>
+          <p class="warning">To complete the raffle and distribute prizes, we would need to integrate with Switchboard VRF.</p>
+          <p>When the raffle completes, the full prize balance (${formatSOL(raffleBalance)} SOL) would be transferred to the winner's account.</p>
+        `;
+        
+      } catch (err) {
+        log(`Error checking balances: ${err.message}`, 'error');
+        balanceResult.innerHTML = `<p class="error">Error: ${err.message}</p>`;
+      }
+    }
+    
+    // Create a mock VRF account
+    async function createMockVRF() {
+      const vrfResult = document.getElementById('vrfResult');
+      vrfResult.innerHTML = '<p>Creating mock VRF account...</p>';
+      
+      try {
+        // Check if connected
+        if (!window.solana || !window.solana.isConnected) {
+          const connected = await connectWallet();
+          if (!connected) return;
+        }
+        
+        const walletPublicKey = window.solana.publicKey;
+        
+        // Create connection
+        const connection = new solanaWeb3.Connection("https://api.devnet.solana.com", "confirmed");
+        
+        // Generate a keypair for the VRF account
+        const vrfKeypair = solanaWeb3.Keypair.generate();
+        log(`Generated VRF account keypair: ${vrfKeypair.publicKey.toString()}`);
+        
+        // Size for a mock VRF account (real Switchboard VRF accounts are more complex)
+        const VRF_ACCOUNT_SIZE = 300; 
+        
+        // Calculate rent exemption
+        const rentExemptBalance = await connection.getMinimumBalanceForRentExemption(VRF_ACCOUNT_SIZE);
+        
+        // Create transaction to create the account
+        const transaction = new solanaWeb3.Transaction();
+        
+        // For our mock, we'll make the wallet the owner of the VRF account
+        // In a real Switchboard integration, the Switchboard program would own this account
+        transaction.add(
+          solanaWeb3.SystemProgram.createAccount({
+            fromPubkey: walletPublicKey,
+            newAccountPubkey: vrfKeypair.publicKey,
+            lamports: rentExemptBalance,
+            space: VRF_ACCOUNT_SIZE,
+            programId: walletPublicKey // Owner is wallet for our mock
+          })
+        );
+        
+        // Sign transaction
+        const { blockhash } = await connection.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = walletPublicKey;
+        
+        // Need to sign with both wallet and VRF keypair
+        transaction.sign(vrfKeypair);
+        
+        const signed = await window.solana.signTransaction(transaction);
+        
+        // Send transaction
+        const signature = await connection.sendRawTransaction(signed.serialize(), {
+          skipPreflight: true
+        });
+        
+        // Wait for confirmation
+        const confirmation = await connection.confirmTransaction(signature);
+        if (confirmation.value.err) {
+          throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+        }
+        
+        log(`Mock VRF account created successfully!`, 'success');
+        
+        // Update UI
+        vrfResult.innerHTML = `
+          <p class="success">Mock VRF account created successfully!</p>
+          <p>VRF Account Address: <strong>${vrfKeypair.publicKey.toString()}</strong></p>
+          <p><a href="${displayTransactionLink(signature)}" target="_blank">View on Explorer</a></p>
+          <p class="warning">Note: In production, you would use Switchboard's SDK to create a proper VRF account.</p>
+        `;
+        
+        // Save VRF address in the form
+        document.getElementById('vrfAddress').value = vrfKeypair.publicKey.toString();
+        
+        // Save VRF keypair to localStorage for future reference
+        localStorage.setItem('vrfKeypair', JSON.stringify(Array.from(vrfKeypair.secretKey)));
+        
+        return vrfKeypair.publicKey.toString();
+      } catch (err) {
+        log(`Error creating mock VRF account: ${err.message}`, 'error');
+        vrfResult.innerHTML = `<p class="error">Error: ${err.message}</p>`;
+        
+        if (err.logs) {
+          log(`Error logs: ${err.logs.join('\n')}`, 'error');
+        }
+        
+        return null;
+      }
+    }
+    
+    // Request randomness
+    async function requestRandomness() {
+      const requestResult = document.getElementById('requestResult');
+      requestResult.innerHTML = '<p>Requesting randomness...</p>';
+      
+      try {
+        // Get program ID, raffle address, and VRF address
+        const programId = document.getElementById('programId').value.trim();
+        const raffleAddress = document.getElementById('raffleAddress').value.trim();
+        const vrfAddress = document.getElementById('vrfAddress').value.trim();
+        
+        if (!programId) throw new Error("Please enter your Program ID");
+        if (!raffleAddress) throw new Error("Please enter the raffle address");
+        if (!vrfAddress) throw new Error("Please create a VRF account first");
+        
+        // Check if connected
+        if (!window.solana || !window.solana.isConnected) {
+          const connected = await connectWallet();
+          if (!connected) return;
+        }
+        
+        const walletPublicKey = window.solana.publicKey;
+        
+        // Create connection
+        const connection = new solanaWeb3.Connection("https://api.devnet.solana.com", "confirmed");
+        
+        // Find the config PDA
+        const configSeed = new TextEncoder().encode("config");
+        const [configPDA] = await findPDA([configSeed], new solanaWeb3.PublicKey(programId));
+        
+        log(`Requesting randomness for raffle: ${raffleAddress}`);
+        
+        // Create the instruction data for request randomness (instruction code 8)
+        const dataBuffer = new Uint8Array(1);
+        dataBuffer[0] = 8; // Request randomness instruction
+        
+        // Create transaction
+        const transaction = new solanaWeb3.Transaction();
+        const { blockhash } = await connection.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = walletPublicKey;
+        
+        // In a real Switchboard integration, you'd need many more accounts here
+        // This is a simplified version for testing our contract's logic
+        transaction.add({
+          keys: [
+            { pubkey: walletPublicKey, isSigner: true, isWritable: true },                // Authority
+            { pubkey: new solanaWeb3.PublicKey(raffleAddress), isSigner: false, isWritable: true }, // Raffle
+            { pubkey: new solanaWeb3.PublicKey(vrfAddress), isSigner: false, isWritable: true },   // VRF
+            { pubkey: walletPublicKey, isSigner: true, isWritable: true },                // Payer (same as authority for test)
+            { pubkey: walletPublicKey, isSigner: false, isWritable: false },              // Mock Switchboard program
+            { pubkey: walletPublicKey, isSigner: false, isWritable: false },              // Mock Oracle queue
+          ],
+          programId: new solanaWeb3.PublicKey(programId),
+          data: dataBuffer
+        });
+        
+        // Sign transaction
+        const signed = await window.solana.signTransaction(transaction);
+        
+        // Send transaction
+        const signature = await connection.sendRawTransaction(signed.serialize());
+        
+        // Wait for confirmation
+        log("Waiting for transaction confirmation...");
+        const confirmation = await connection.confirmTransaction(signature);
+        if (confirmation.value.err) {
+          throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+        }
+        
+        log(`Randomness requested successfully!`, 'success');
+        
+        // Update UI
+        requestResult.innerHTML = `
+          <p class="success">Successfully requested randomness!</p>
+          <p><a href="${displayTransactionLink(signature)}" target="_blank">View on Explorer</a></p>
+          <p class="warning">In production, Switchboard's oracle would now fulfill this request.</p>
+          <p>You can now proceed to complete the raffle.</p>
+        `;
+        
+        return true;
+      } catch (err) {
+        log(`Error requesting randomness: ${err.message}`, 'error');
+        requestResult.innerHTML = `<p class="error">Error: ${err.message}</p>`;
+        
+        if (err.logs) {
+          log(`Error logs: ${err.logs.join('\n')}`, 'error');
+        }
+        
+        return false;
+      }
+    }
+    
+    // Complete raffle with VRF
+    async function completeRaffle() {
+      const completeResult = document.getElementById('completeResult');
+      completeResult.innerHTML = '<p>Completing raffle...</p>';
+      
+      try {
+        // Get the required inputs
+        const programId = document.getElementById('programId').value.trim();
+        const raffleAddress = document.getElementById('raffleAddress').value.trim();
+        const vrfAddress = document.getElementById('vrfAddress').value.trim();
+        const ticketAddress = document.getElementById('ticketAddress').value.trim();
+        
+        if (!programId) throw new Error("Please enter your Program ID");
+        if (!raffleAddress) throw new Error("Please enter the raffle address");
+        if (!vrfAddress) throw new Error("Please create a VRF account first");
+        if (!ticketAddress) throw new Error("Please enter the ticket/winner address");
+        
+        // Check if connected
+        if (!window.solana || !window.solana.isConnected) {
+          const connected = await connectWallet();
+          if (!connected) return;
+        }
+        
+        const walletPublicKey = window.solana.publicKey;
+        
+        // Create connection
+        const connection = new solanaWeb3.Connection("https://api.devnet.solana.com", "confirmed");
+        
+        // Get balances before completion
+        const rafflePubkey = new solanaWeb3.PublicKey(raffleAddress);
+        const ticketPubkey = new solanaWeb3.PublicKey(ticketAddress);
+        const raffleBalanceBefore = await connection.getBalance(rafflePubkey);
+        const ticketBalanceBefore = await connection.getBalance(ticketPubkey);
+        
+        log(`Raffle balance before completion: ${formatSOL(raffleBalanceBefore)} SOL`);
+        log(`Ticket balance before completion: ${formatSOL(ticketBalanceBefore)} SOL`);
+        
+        // Create the instruction data for complete raffle with VRF (instruction code 9)
+        const dataBuffer = new Uint8Array(1);
+        dataBuffer[0] = 9; // Complete raffle with VRF instruction
+        
+        // Create transaction
+        const transaction = new solanaWeb3.Transaction();
+        const { blockhash } = await connection.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = walletPublicKey;
+        
+        // Add instruction for completing raffle with VRF
+        transaction.add({
+          keys: [
+            { pubkey: walletPublicKey, isSigner: true, isWritable: true },                // Authority
+            { pubkey: rafflePubkey, isSigner: false, isWritable: true },                    // Raffle
+            { pubkey: new solanaWeb3.PublicKey(vrfAddress), isSigner: false, isWritable: false },  // VRF
+            { pubkey: ticketPubkey, isSigner: false, isWritable: true },                   // Winner
+            { pubkey: walletPublicKey, isSigner: false, isWritable: false },               // Mock Switchboard program
+            { pubkey: solanaWeb3.SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false }  // Clock Sysvar
+          ],
+          programId: new solanaWeb3.PublicKey(programId),
+          data: dataBuffer
+        });
+        
+        // Sign transaction
+        const signed = await window.solana.signTransaction(transaction);
+        
+        // Send transaction
+        const signature = await connection.sendRawTransaction(signed.serialize());
+        
+        // Wait for confirmation
+        log("Waiting for transaction confirmation...");
+        const confirmation = await connection.confirmTransaction(signature);
+        if (confirmation.value.err) {
+          throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+        }
+        
+        // Get balances after completion
+        const raffleBalanceAfter = await connection.getBalance(rafflePubkey);
+        const ticketBalanceAfter = await connection.getBalance(ticketPubkey);
+        
+        log(`Raffle balance after completion: ${formatSOL(raffleBalanceAfter)} SOL`);
+        log(`Ticket balance after completion: ${formatSOL(ticketBalanceAfter)} SOL`);
+        log(`Prize transferred: ${formatSOL(ticketBalanceAfter - ticketBalanceBefore)} SOL`);
+        
+        log(`Raffle completed successfully!`, 'success');
+        
+        // Update UI
+        completeResult.innerHTML = `
+          <p class="success">Raffle completed successfully!</p>
+          <p>Raffle balance before: <strong>${formatSOL(raffleBalanceBefore)} SOL</strong></p>
+          <p>Raffle balance after: <strong>${formatSOL(raffleBalanceAfter)} SOL</strong></p>
+          <p>Winner balance before: <strong>${formatSOL(ticketBalanceBefore)} SOL</strong></p>
+          <p>Winner balance after: <strong>${formatSOL(ticketBalanceAfter)} SOL</strong></p>
+          <p>Prize transferred: <strong>${formatSOL(ticketBalanceAfter - ticketBalanceBefore)} SOL</strong></p>
+          <p><a href="${displayTransactionLink(signature)}" target="_blank">View on Explorer</a></p>
+        `;
+        
+        return true;
+      } catch (err) {
+        log(`Error completing raffle: ${err.message}`, 'error');
+        completeResult.innerHTML = `<p class="error">Error: ${err.message}</p>`;
+        
+        if (err.logs) {
+          log(`Error logs: ${err.logs.join('\n')}`, 'error');
+        }
+        
+        return false;
+      }
+    }
+    
+    // Attach event listeners
+    document.getElementById('connectWallet').addEventListener('click', connectWallet);
+    document.getElementById('createRaffle').addEventListener('click', createRaffle);
+    document.getElementById('createTicketAccount').addEventListener('click', createTicketAccount);
+    document.getElementById('purchaseTickets').addEventListener('click', purchaseTickets);
+    document.getElementById('checkBalances').addEventListener('click', checkBalances);
+    document.getElementById('createMockVRF').addEventListener('click', createMockVRF);
+    document.getElementById('requestRandomness').addEventListener('click', requestRandomness);
+    document.getElementById('completeRaffle').addEventListener('click', completeRaffle);
+    
+    // Auto-populate nonce field with current timestamp
+    document.getElementById('raffleNonce').value = Date.now();
+    
+    // Log initial status
+    log('Raffle Completion Test loaded with updated nonce support. Connect your wallet to get started.', 'success');
+  </script>
+</body>
+</html>
