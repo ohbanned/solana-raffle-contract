@@ -34,9 +34,9 @@ impl Processor {
                 msg!("Instruction: Initialize Config");
                 Self::process_initialize_config(accounts, ticket_price, fee_basis_points, program_id)
             }
-            RaffleInstruction::InitializeRaffle { title, duration } => {
+            RaffleInstruction::InitializeRaffle { title, duration, nonce } => {
                 msg!("Instruction: Initialize Raffle");
-                Self::process_initialize_raffle(accounts, title, duration, program_id)
+                Self::process_initialize_raffle(accounts, title, duration, nonce, program_id)
             }
             RaffleInstruction::PurchaseTickets { ticket_count } => {
                 msg!("Instruction: Purchase Tickets");
@@ -184,6 +184,7 @@ impl Processor {
         accounts: &[AccountInfo],
         title: [u8; 32],
         duration: u64,
+        nonce: u64,
         program_id: &Pubkey,
     ) -> ProgramResult {
         let account_info_iter = &mut accounts.iter();
@@ -203,14 +204,88 @@ impl Processor {
         let clock = Clock::from_account_info(clock_info)?;
         let current_time = clock.unix_timestamp;
         
-        // Check that the raffle account is owned by our program
+        // Check if the raffle account needs to be created (not owned by program yet)
         if raffle_info.owner != program_id {
-            msg!("Raffle account must be owned by this program");
-            return Err(ProgramError::IncorrectProgramId);
+            msg!("Creating new raffle account");
+            
+            // Calculate the rent-exemption amount
+            let rent = Rent::get()?;
+            let raffle_account_size = Raffle::LEN; // Use the proper size constant
+            let rent_lamports = rent.minimum_balance(raffle_account_size);
+            
+            // Derive the expected PDA for the raffle account using the nonce to ensure uniqueness
+            // This allows the raffle account to receive funds (tokens can only be transferred out via instructions)
+            let nonce_bytes = nonce.to_le_bytes();
+            let seeds = &[
+                b"raffle",
+                authority_info.key.as_ref(),
+                &nonce_bytes,
+            ];
+            let (raffle_pda, bump_seed) = Pubkey::find_program_address(seeds, program_id);
+            
+            msg!("Creating raffle with nonce: {}", nonce);
+            
+            // Verify the provided raffle account is the correct PDA
+            if *raffle_info.key != raffle_pda {
+                msg!("Raffle account does not match expected PDA");
+                return Err(ProgramError::InvalidArgument);
+            }
+            
+            // Create the raffle account with exact size needed
+            invoke_signed(
+                &system_instruction::create_account(
+                    authority_info.key,
+                    raffle_info.key,
+                    rent_lamports,
+                    raffle_account_size as u64,
+                    program_id,
+                ),
+                &[
+                    authority_info.clone(),
+                    raffle_info.clone(),
+                    system_program_info.clone(),
+                ],
+                &[&[
+                    b"raffle",
+                    authority_info.key.as_ref(),
+                    &nonce_bytes,
+                    &[bump_seed],
+                ]],
+            )?;
+            
+            msg!("Raffle account created successfully");
+            
+            // Zero out the account memory so Raffle::pack works correctly
+            let mut data = raffle_info.try_borrow_mut_data()?;
+            for i in 0..data.len() {
+                data[i] = 0;
+            }
+            msg!("Raffle account memory zeroed out, ready for initialization");
+        } else {
+            msg!("Checking existing raffle account");
+            
+            // Verify the raffle hasn't already been initialized
+            let existing_raffle = Raffle::unpack(&raffle_info.data.borrow())?;
+            if existing_raffle.is_initialized {
+                msg!("Raffle already initialized. Each raffle must have a unique nonce.");
+                return Err(ProgramError::AccountAlreadyInitialized);
+            }
+            
+            msg!("Existing account is valid for initialization");
         }
 
         // Load config to get ticket price and fee information
-        let config_data = Config::unpack(&config_info.data.borrow())?;
+        let config_data = match Config::unpack(&config_info.data.borrow()) {
+            Ok(config) => config,
+            Err(err) => {
+                msg!("Error unpacking config data: {:?}", err);
+                return Err(ProgramError::InvalidAccountData);
+            }
+        };
+        
+        // Log config data to help debug
+        msg!("Config data loaded: ticket_price={}, fee_basis_points={}", 
+             config_data.ticket_price, config_data.fee_basis_points);
 
         // Validate config
         if !config_data.is_initialized {
@@ -218,29 +293,27 @@ impl Processor {
             return Err(ProgramError::InvalidAccountData);
         }
 
-        // Calculate end time
-        let end_time = current_time + duration as i64;
-
-        // Initialize raffle data
-        let raffle_data = Raffle {
+        // Initialize the raffle data
+        let mut raffle_data = Raffle {
             is_initialized: true,
             authority: *authority_info.key,
             title,
-            end_time,
-            ticket_price: config_data.ticket_price,  // Take ticket price from config
+            end_time: clock.unix_timestamp + duration as i64,
+            ticket_price: config_data.ticket_price,
             status: RaffleStatus::Active,
-            winner: Pubkey::default(),  // No winner initially
+            winner: Pubkey::default(), // No winner yet
             tickets_sold: 0,
-            fee_basis_points: config_data.fee_basis_points,  // Fixed fee from config
-            treasury: config_data.treasury,  // Treasury from config
-            vrf_account: Pubkey::default(),  // Will be set when VRF is requested
+            fee_basis_points: config_data.fee_basis_points,
+            treasury: config_data.treasury,
+            vrf_account: Pubkey::default(), // Will be set later when requesting randomness
             vrf_request_in_progress: false,
+            nonce, // Store the nonce for future reference
         };
 
         // Save the raffle data
         Raffle::pack(raffle_data, &mut raffle_info.data.borrow_mut())?;
 
-        msg!("Raffle initialized: End time={}, Price={}", end_time, config_data.ticket_price);
+        msg!("Raffle initialized: End time={}, Price={}, Nonce={}", raffle_data.end_time, config_data.ticket_price, nonce);
         Ok(())
     }
 

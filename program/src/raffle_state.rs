@@ -63,6 +63,8 @@ pub struct Raffle {
     pub vrf_account: Pubkey,
     /// Flag indicating if VRF request is in progress
     pub vrf_request_in_progress: bool,
+    /// Unique identifier for this raffle (used in PDA derivation)
+    pub nonce: u64,
 }
 
 /// Program configuration account
@@ -86,8 +88,10 @@ impl Default for Config {
         // Admin Address: ALUhG5kg3mje7LpX1uDCuconBh9ADNFYan1vzYLV54Au
         // Ticket Price: 0.025 SOL = 25,000,000 lamports
         // Fee: 10% = 1000 basis points
-        let admin_bytes = [161, 76, 122, 149, 74, 157, 76, 72, 74, 165, 29, 203, 173, 104, 219, 94, 65, 135, 93, 220, 121, 184, 162, 159, 101, 206, 241, 224, 169, 106, 148, 79];
-        let treasury_bytes = [161, 76, 122, 149, 74, 157, 76, 72, 74, 165, 29, 203, 173, 104, 219, 94, 65, 135, 93, 220, 121, 184, 162, 159, 101, 206, 241, 224, 169, 106, 148, 79];
+        
+        // Correct bytes for ALUhG5kg3mje7LpX1uDCuconBh9ADNFYan1vzYLV54Au
+        let admin_bytes = [138, 182, 136, 21, 23, 151, 163, 26, 122, 255, 174, 159, 169, 142, 30, 115, 28, 171, 155, 60, 15, 195, 103, 130, 203, 87, 100, 253, 237, 131, 212, 42];
+        let treasury_bytes = [138, 182, 136, 21, 23, 151, 163, 26, 122, 255, 174, 159, 169, 142, 30, 115, 28, 171, 155, 60, 15, 195, 103, 130, 203, 87, 100, 253, 237, 131, 212, 42];
 
         Self {
             is_initialized: true,
@@ -137,7 +141,7 @@ impl IsInitialized for TicketPurchase {
 }
 
 impl Pack for Raffle {
-    const LEN: usize = 1 + 32 + 32 + 8 + 8 + 1 + 32 + 8 + 2 + 32 + 32 + 1;
+    const LEN: usize = 1 + 32 + 32 + 8 + 8 + 1 + 32 + 8 + 2 + 32 + 32 + 1 + 8; // Added 8 bytes for nonce
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, solana_program::program_error::ProgramError> {
         let src = array_ref![src, 0, Raffle::LEN];
@@ -154,7 +158,15 @@ impl Pack for Raffle {
             treasury,
             vrf_account,
             vrf_request_in_progress,
-        ) = array_refs![src, 1, 32, 32, 8, 8, 1, 32, 8, 2, 32, 32, 1];
+            nonce,
+        ) = array_refs![
+            src, 1, 32, 32, 8, 8, 1, 32, 8, 2, 32, 32, 1, 8
+        ];
+
+        let status = match RaffleStatus::try_from(status[0]) {
+            Ok(status) => status,
+            Err(_) => return Err(solana_program::program_error::ProgramError::InvalidAccountData),
+        };
 
         Ok(Raffle {
             is_initialized: is_initialized[0] != 0,
@@ -162,13 +174,14 @@ impl Pack for Raffle {
             title: *title,
             end_time: UnixTimestamp::from_le_bytes(*end_time),
             ticket_price: u64::from_le_bytes(*ticket_price),
-            status: RaffleStatus::try_from(status[0]).map_err(|_| solana_program::program_error::ProgramError::InvalidAccountData)?,
+            status,
             winner: Pubkey::new_from_array(*winner),
             tickets_sold: u64::from_le_bytes(*tickets_sold),
             fee_basis_points: u16::from_le_bytes(*fee_basis_points),
             treasury: Pubkey::new_from_array(*treasury),
             vrf_account: Pubkey::new_from_array(*vrf_account),
             vrf_request_in_progress: vrf_request_in_progress[0] != 0,
+            nonce: u64::from_le_bytes(*nonce),
         })
     }
 
@@ -187,7 +200,8 @@ impl Pack for Raffle {
             treasury_dst,
             vrf_account_dst,
             vrf_request_in_progress_dst,
-        ) = mut_array_refs![dst, 1, 32, 32, 8, 8, 1, 32, 8, 2, 32, 32, 1];
+            nonce_dst,
+        ) = mut_array_refs![dst, 1, 32, 32, 8, 8, 1, 32, 8, 2, 32, 32, 1, 8];
 
         is_initialized_dst[0] = self.is_initialized as u8;
         authority_dst.copy_from_slice(self.authority.as_ref());
@@ -201,6 +215,7 @@ impl Pack for Raffle {
         treasury_dst.copy_from_slice(self.treasury.as_ref());
         vrf_account_dst.copy_from_slice(self.vrf_account.as_ref());
         vrf_request_in_progress_dst[0] = self.vrf_request_in_progress as u8;
+        *nonce_dst = self.nonce.to_le_bytes();
     }
 }
 

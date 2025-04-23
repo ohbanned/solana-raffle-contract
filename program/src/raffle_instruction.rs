@@ -37,6 +37,8 @@ pub enum RaffleInstruction {
         title: [u8; 32],
         /// Duration of the raffle in seconds
         duration: u64,
+        /// Unique identifier for this raffle
+        nonce: u64,
     },
 
     /// Purchase tickets for a raffle
@@ -148,25 +150,18 @@ impl RaffleInstruction {
                 }
             },
             1 => {
-                if rest.len() < 40 {
-                    // Need at least 32 bytes for title and 8 bytes for duration
+                if rest.len() < 32 + 8 + 8 {
                     return Err(ProgramError::InvalidInstructionData);
                 }
                 
-                let title = {
-                    let mut array = [0u8; 32];
-                    let title_bytes = &rest[0..32];
-                    array.copy_from_slice(title_bytes);
-                    array
-                };
+                let title: [u8; 32] = rest[..32].try_into().unwrap();
+                let duration = rest[32..40].try_into().unwrap();
+                let nonce = rest[40..48].try_into().unwrap();
                 
-                let duration = rest[32..40].try_into()
-                    .map(u64::from_le_bytes)
-                    .map_err(|_| ProgramError::InvalidInstructionData)?;
-
                 Self::InitializeRaffle {
                     title,
-                    duration,
+                    duration: u64::from_le_bytes(duration),
+                    nonce: u64::from_le_bytes(nonce),
                 }
             }
             2 => {
@@ -200,10 +195,11 @@ impl RaffleInstruction {
                 buf.extend_from_slice(&ticket_price.to_le_bytes());
                 buf.extend_from_slice(&fee_basis_points.to_le_bytes());
             }
-            Self::InitializeRaffle { title, duration } => {
+            Self::InitializeRaffle { title, duration, nonce } => {
                 buf.push(1);
                 buf.extend_from_slice(title);
                 buf.extend_from_slice(&duration.to_le_bytes());
+                buf.extend_from_slice(&nonce.to_le_bytes());
             }
             Self::PurchaseTickets { ticket_count } => {
                 buf.push(2);
@@ -275,12 +271,9 @@ pub fn initialize_raffle(
     config_account: &Pubkey,
     title: [u8; 32],
     duration: u64,
+    nonce: u64,
 ) -> Result<Instruction, ProgramError> {
-    let data = RaffleInstruction::InitializeRaffle {
-        title,
-        duration,
-    }
-    .pack();
+    let data = RaffleInstruction::InitializeRaffle { title, duration, nonce }.pack();
 
     let accounts = vec![
         AccountMeta::new(*authority, true),
