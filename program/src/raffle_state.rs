@@ -11,6 +11,8 @@ use std::convert::TryFrom;
 pub enum RaffleStatus {
     /// Raffle is open for entries
     Active,
+    /// Time ended, waiting for randomness request
+    ReadyForRandomness,
     /// Raffle is complete and winner has been chosen
     Complete,
 }
@@ -21,7 +23,8 @@ impl TryFrom<u8> for RaffleStatus {
     fn try_from(val: u8) -> Result<Self, Self::Error> {
         match val {
             0 => Ok(RaffleStatus::Active),
-            1 => Ok(RaffleStatus::Complete),
+            1 => Ok(RaffleStatus::ReadyForRandomness),
+            2 => Ok(RaffleStatus::Complete),
             _ => Err("Invalid raffle status"),
         }
     }
@@ -31,7 +34,8 @@ impl From<RaffleStatus> for u8 {
     fn from(status: RaffleStatus) -> Self {
         match status {
             RaffleStatus::Active => 0,
-            RaffleStatus::Complete => 1,
+            RaffleStatus::ReadyForRandomness => 1,
+            RaffleStatus::Complete => 2,
         }
     }
 }
@@ -65,6 +69,8 @@ pub struct Raffle {
     pub vrf_request_in_progress: bool,
     /// Unique identifier for this raffle (used in PDA derivation)
     pub nonce: u64,
+    /// Sequential ID number for this raffle (1, 2, 3, etc.)
+    pub raffle_index: u64,
 }
 
 /// Program configuration account
@@ -80,6 +86,8 @@ pub struct Config {
     pub ticket_price: u64,
     /// Fee percentage in basis points (e.g., 500 = 5%)
     pub fee_basis_points: u16,
+    /// Counter for sequential raffle IDs
+    pub next_raffle_index: u64,
 }
 
 impl Default for Config {
@@ -95,6 +103,7 @@ impl Default for Config {
 
         Self {
             is_initialized: true,
+            next_raffle_index: 1, // Start from 1 for better user experience
             admin: Pubkey::new_from_array(admin_bytes),
             treasury: Pubkey::new_from_array(treasury_bytes),
             ticket_price: 25_000_000, // 0.025 SOL
@@ -141,7 +150,7 @@ impl IsInitialized for TicketPurchase {
 }
 
 impl Pack for Raffle {
-    const LEN: usize = 1 + 32 + 32 + 8 + 8 + 1 + 32 + 8 + 2 + 32 + 32 + 1 + 8; // Added 8 bytes for nonce
+    const LEN: usize = 1 + 32 + 32 + 8 + 8 + 1 + 32 + 8 + 2 + 32 + 32 + 1 + 8 + 8; // Added 8 bytes for raffle_index
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, solana_program::program_error::ProgramError> {
         let src = array_ref![src, 0, Raffle::LEN];
@@ -159,8 +168,9 @@ impl Pack for Raffle {
             vrf_account,
             vrf_request_in_progress,
             nonce,
+            raffle_index,
         ) = array_refs![
-            src, 1, 32, 32, 8, 8, 1, 32, 8, 2, 32, 32, 1, 8
+            src, 1, 32, 32, 8, 8, 1, 32, 8, 2, 32, 32, 1, 8, 8
         ];
 
         let status = match RaffleStatus::try_from(status[0]) {
@@ -182,6 +192,7 @@ impl Pack for Raffle {
             vrf_account: Pubkey::new_from_array(*vrf_account),
             vrf_request_in_progress: vrf_request_in_progress[0] != 0,
             nonce: u64::from_le_bytes(*nonce),
+            raffle_index: u64::from_le_bytes(*raffle_index),
         })
     }
 
@@ -201,7 +212,8 @@ impl Pack for Raffle {
             vrf_account_dst,
             vrf_request_in_progress_dst,
             nonce_dst,
-        ) = mut_array_refs![dst, 1, 32, 32, 8, 8, 1, 32, 8, 2, 32, 32, 1, 8];
+            raffle_index_dst,
+        ) = mut_array_refs![dst, 1, 32, 32, 8, 8, 1, 32, 8, 2, 32, 32, 1, 8, 8];
 
         is_initialized_dst[0] = self.is_initialized as u8;
         authority_dst.copy_from_slice(self.authority.as_ref());
@@ -216,15 +228,17 @@ impl Pack for Raffle {
         vrf_account_dst.copy_from_slice(self.vrf_account.as_ref());
         vrf_request_in_progress_dst[0] = self.vrf_request_in_progress as u8;
         *nonce_dst = self.nonce.to_le_bytes();
+        *raffle_index_dst = self.raffle_index.to_le_bytes();
     }
 }
 
 impl Pack for Config {
-    const LEN: usize = 1 + 32 + 32 + 8 + 2;
+    const LEN: usize = 1 + 32 + 32 + 8 + 2 + 8; // Added 8 bytes for next_raffle_index
 
     fn unpack_from_slice(src: &[u8]) -> Result<Self, solana_program::program_error::ProgramError> {
         let src = array_ref![src, 0, Config::LEN];
-        let (is_initialized, admin, treasury, ticket_price, fee_basis_points) = array_refs![src, 1, 32, 32, 8, 2];
+        let (is_initialized, admin, treasury, ticket_price, fee_basis_points, next_raffle_index) = 
+            array_refs![src, 1, 32, 32, 8, 2, 8];
 
         Ok(Config {
             is_initialized: is_initialized[0] != 0,
@@ -232,19 +246,21 @@ impl Pack for Config {
             treasury: Pubkey::new_from_array(*treasury),
             ticket_price: u64::from_le_bytes(*ticket_price),
             fee_basis_points: u16::from_le_bytes(*fee_basis_points),
+            next_raffle_index: u64::from_le_bytes(*next_raffle_index),
         })
     }
 
     fn pack_into_slice(&self, dst: &mut [u8]) {
         let dst = array_mut_ref![dst, 0, Config::LEN];
-        let (is_initialized_dst, admin_dst, treasury_dst, ticket_price_dst, fee_basis_points_dst) = 
-            mut_array_refs![dst, 1, 32, 32, 8, 2];
+        let (is_initialized_dst, admin_dst, treasury_dst, ticket_price_dst, fee_basis_points_dst, next_raffle_index_dst) = 
+            mut_array_refs![dst, 1, 32, 32, 8, 2, 8];
 
         is_initialized_dst[0] = self.is_initialized as u8;
         admin_dst.copy_from_slice(self.admin.as_ref());
         treasury_dst.copy_from_slice(self.treasury.as_ref());
         *ticket_price_dst = self.ticket_price.to_le_bytes();
         *fee_basis_points_dst = self.fee_basis_points.to_le_bytes();
+        *next_raffle_index_dst = self.next_raffle_index.to_le_bytes();
     }
 }
 
