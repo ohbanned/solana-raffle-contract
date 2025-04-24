@@ -70,6 +70,10 @@ impl Processor {
                 msg!("Instruction: Complete Raffle With VRF");
                 Self::process_complete_raffle_with_vrf(accounts, program_id)
             },
+            RaffleInstruction::PrepareRaffle {} => {
+                msg!("Instruction: Prepare Raffle for Randomness");
+                Self::process_prepare_raffle(accounts, program_id)
+            },
         }
     }
 
@@ -293,6 +297,13 @@ impl Processor {
             return Err(ProgramError::InvalidAccountData);
         }
 
+        // Get the next raffle index from config and increment it for future raffles
+        let current_raffle_index = config_data.next_raffle_index;
+        msg!("Assigning raffle index: {}", current_raffle_index);
+
+        // We don't update the config until after we've successfully initialized the raffle
+        // to ensure atomicity of the operation
+
         // Initialize the raffle data
         let mut raffle_data = Raffle {
             is_initialized: true,
@@ -308,12 +319,21 @@ impl Processor {
             vrf_account: Pubkey::default(), // Will be set later when requesting randomness
             vrf_request_in_progress: false,
             nonce, // Store the nonce for future reference
+            raffle_index: current_raffle_index, // Assign the sequential ID
         };
 
         // Save the raffle data
         Raffle::pack(raffle_data, &mut raffle_info.data.borrow_mut())?;
 
-        msg!("Raffle initialized: End time={}, Price={}, Nonce={}", raffle_data.end_time, config_data.ticket_price, nonce);
+        // Now that the raffle is successfully initialized, update the config's counter
+        // This ensures atomicity - if raffle init fails, counter won't be incremented
+        let mut updated_config = config_data;
+        updated_config.next_raffle_index = updated_config.next_raffle_index.checked_add(1)
+            .ok_or(ProgramError::ArithmeticOverflow)?;
+        Config::pack(updated_config, &mut config_info.data.borrow_mut())?;
+
+        msg!("Raffle initialized: End time={}, Price={}, Nonce={}, Index={}", 
+             raffle_data.end_time, config_data.ticket_price, nonce, current_raffle_index);
         Ok(())
     }
 
@@ -743,19 +763,15 @@ impl Processor {
         
         // Anyone can request randomness for a raffle (fully decentralized approach)
 
-        // Check if raffle is still active
-        if raffle_data.status != RaffleStatus::Active {
-            msg!("Raffle is not active");
+        // Check if raffle is in the correct state (ReadyForRandomness)
+        if raffle_data.status != RaffleStatus::ReadyForRandomness {
+            msg!("Raffle is not in ReadyForRandomness state. Current status: {:?}", raffle_data.status);
             return Err(ProgramError::InvalidAccountData);
         }
-
-        // Get the current time
-        let clock = Clock::get()?;
-        let current_time = clock.unix_timestamp;
-
-        // Check if raffle has ended
-        if current_time < raffle_data.end_time {
-            msg!("Raffle has not ended yet, cannot request randomness");
+        
+        // Check if VRF request is already in progress
+        if raffle_data.vrf_request_in_progress {
+            msg!("VRF request is already in progress");
             return Err(ProgramError::InvalidAccountData);
         }
 
@@ -820,9 +836,9 @@ impl Processor {
 
         // Anyone can complete the raffle (fully decentralized approach)
 
-        // Check if raffle is still active
-        if raffle_data.status != RaffleStatus::Active {
-            msg!("Raffle is not active");
+        // Check if raffle is in ReadyForRandomness state
+        if raffle_data.status != RaffleStatus::ReadyForRandomness {
+            msg!("Raffle is not in ReadyForRandomness state. Current state: {:?}", raffle_data.status);
             return Err(ProgramError::InvalidArgument);
         }
 
@@ -902,3 +918,60 @@ impl Processor {
         Ok(())
     }
 }
+
+    /// Process PrepareRaffle instruction
+    /// This transitions a raffle from Active to ReadyForRandomness when the time has ended
+    fn process_prepare_raffle(
+        accounts: &[AccountInfo],
+        program_id: &Pubkey,
+    ) -> ProgramResult {
+        let account_info_iter = &mut accounts.iter();
+        let authority_info = next_account_info(account_info_iter)?;
+        let raffle_info = next_account_info(account_info_iter)?;
+        let clock_info = next_account_info(account_info_iter)?;
+
+        // Verify the initiator signed the transaction
+        if !authority_info.is_signer {
+            msg!("Initiator must sign the transaction");
+            return Err(ProgramError::MissingRequiredSignature);
+        }
+
+        // Check that raffle account is owned by our program
+        if raffle_info.owner != program_id {
+            return Err(ProgramError::IncorrectProgramId);
+        }
+
+        // Get the raffle data
+        let mut raffle_data = Raffle::unpack(&raffle_info.data.borrow())?;
+
+        // Check if raffle is active
+        if raffle_data.status != RaffleStatus::Active {
+            msg!("Raffle is not in Active state");
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        // Get the current time
+        let clock = Clock::from_account_info(clock_info)?;
+        let current_time = clock.unix_timestamp;
+
+        // Check if raffle has ended
+        if current_time < raffle_data.end_time {
+            msg!("Raffle has not ended yet");
+            return Err(ProgramError::InvalidArgument);
+        }
+
+        // Check if any tickets were sold
+        if raffle_data.tickets_sold == 0 {
+            msg!("No tickets were sold, cannot prepare raffle for randomness");
+            return Err(ProgramError::InvalidArgument);
+        }
+        
+        // Update raffle status to ReadyForRandomness
+        raffle_data.status = RaffleStatus::ReadyForRandomness;
+        
+        // Save updated raffle data
+        Raffle::pack(raffle_data, &mut raffle_info.data.borrow_mut())?;
+
+        msg!("Raffle prepared for randomness request");
+        Ok(())
+    }
