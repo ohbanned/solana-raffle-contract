@@ -123,6 +123,15 @@ pub enum RaffleInstruction {
     /// 4. `[]` The switchboard program account
     /// 5. `[]` The clock sysvar
     CompleteRaffleWithVrf {},
+
+    /// Prepare raffle for randomness request (transition from Active to ReadyForRandomness)
+    /// This verifies time has ended and sets the correct status
+    ///
+    /// Accounts expected:
+    /// 0. `[signer]` Any user (fully decentralized - anyone can initiate this action)
+    /// 1. `[writable]` The raffle account
+    /// 2. `[]` The clock sysvar
+    PrepareRaffle {},
 }
 
 impl RaffleInstruction {
@@ -135,52 +144,39 @@ impl RaffleInstruction {
                 if rest.len() < 10 {
                     return Err(ProgramError::InvalidInstructionData);
                 }
-                
-                let ticket_price = rest[0..8].try_into()
-                    .map(u64::from_le_bytes)
-                    .map_err(|_| ProgramError::InvalidInstructionData)?;
-                
-                let fee_basis_points = rest[8..10].try_into()
-                    .map(u16::from_le_bytes)
-                    .map_err(|_| ProgramError::InvalidInstructionData)?;
-
                 Self::InitializeConfig {
                     ticket_price,
                     fee_basis_points,
                 }
             },
             1 => {
-                if rest.len() < 32 + 8 + 8 {
-                    return Err(ProgramError::InvalidInstructionData);
-                }
-                
-                let title: [u8; 32] = rest[..32].try_into().unwrap();
-                let duration = rest[32..40].try_into().unwrap();
-                let nonce = rest[40..48].try_into().unwrap();
-                
+                let (title, rest) = Self::unpack_fixed_bytes::<32>(rest)?;
+                let (duration, rest) = Self::unpack_u64(rest)?;
+                let (nonce, _) = Self::unpack_u64(rest)?;
                 Self::InitializeRaffle {
                     title,
-                    duration: u64::from_le_bytes(duration),
-                    nonce: u64::from_le_bytes(nonce),
+                    duration,
+                    nonce,
                 }
-            }
+            },
             2 => {
-                let ticket_count = rest[0..8].try_into().map(u64::from_le_bytes).map_err(|_| ProgramError::InvalidInstructionData)?;
+                let (ticket_count, _) = Self::unpack_u64(rest)?;
                 Self::PurchaseTickets { ticket_count }
-            }
+            },
             3 => Self::CompleteRaffle {},
             4 => Self::UpdateAdmin {},
             5 => Self::UpdateFeeAddress {},
             6 => {
-                let new_ticket_price = rest[0..8].try_into().map(u64::from_le_bytes).map_err(|_| ProgramError::InvalidInstructionData)?;
+                let (new_ticket_price, _) = Self::unpack_u64(rest)?;
                 Self::UpdateTicketPrice { new_ticket_price }
             },
             7 => {
-                let new_fee_basis_points = rest[0..2].try_into().map(u16::from_le_bytes).map_err(|_| ProgramError::InvalidInstructionData)?;
+                let (new_fee_basis_points, _) = Self::unpack_u16(rest)?;
                 Self::UpdateFeePercentage { new_fee_basis_points }
             },
             8 => Self::RequestRandomness {},
             9 => Self::CompleteRaffleWithVrf {},
+            10 => Self::PrepareRaffle {},
             _ => return Err(ProgramError::InvalidInstructionData),
         })
     }
@@ -188,14 +184,20 @@ impl RaffleInstruction {
     /// Packs a RaffleInstruction into a byte buffer
     pub fn pack(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(size_of::<Self>());
-
-        match self {
-            Self::InitializeConfig { ticket_price, fee_basis_points } => {
+        match *self {
+            Self::InitializeConfig {
+                ticket_price,
+                fee_basis_points,
+            } => {
                 buf.push(0);
                 buf.extend_from_slice(&ticket_price.to_le_bytes());
                 buf.extend_from_slice(&fee_basis_points.to_le_bytes());
             }
-            Self::InitializeRaffle { title, duration, nonce } => {
+            Self::InitializeRaffle {
+                ref title,
+                duration,
+                nonce,
+            } => {
                 buf.push(1);
                 buf.extend_from_slice(title);
                 buf.extend_from_slice(&duration.to_le_bytes());
@@ -205,15 +207,9 @@ impl RaffleInstruction {
                 buf.push(2);
                 buf.extend_from_slice(&ticket_count.to_le_bytes());
             }
-            Self::CompleteRaffle {} => {
-                buf.push(3);
-            }
-            Self::UpdateAdmin {} => {
-                buf.push(4);
-            }
-            Self::UpdateFeeAddress {} => {
-                buf.push(5);
-            }
+            Self::CompleteRaffle {} => buf.push(3),
+            Self::UpdateAdmin {} => buf.push(4),
+            Self::UpdateFeeAddress {} => buf.push(5),
             Self::UpdateTicketPrice { new_ticket_price } => {
                 buf.push(6);
                 buf.extend_from_slice(&new_ticket_price.to_le_bytes());
@@ -222,14 +218,10 @@ impl RaffleInstruction {
                 buf.push(7);
                 buf.extend_from_slice(&new_fee_basis_points.to_le_bytes());
             }
-            Self::RequestRandomness {} => {
-                buf.push(8);
-            }
-            Self::CompleteRaffleWithVrf {} => {
-                buf.push(9);
-            }
+            Self::RequestRandomness {} => buf.push(8),
+            Self::CompleteRaffleWithVrf {} => buf.push(9),
+            Self::PrepareRaffle {} => buf.push(10),
         }
-
         buf
     }
 }
@@ -476,6 +468,27 @@ pub fn complete_raffle_with_vrf(
         AccountMeta::new_readonly(*vrf_account, false),
         AccountMeta::new(*winner, false),
         AccountMeta::new_readonly(*switchboard_program, false),
+        AccountMeta::new_readonly(clock::id(), false),
+    ];
+
+    Ok(Instruction {
+        program_id: *program_id,
+        accounts,
+        data,
+    })
+}
+
+/// Create prepare_raffle instruction
+pub fn prepare_raffle(
+    program_id: &Pubkey,
+    authority: &Pubkey,
+    raffle_account: &Pubkey,
+) -> Result<Instruction, ProgramError> {
+    let data = RaffleInstruction::PrepareRaffle {}.pack();
+
+    let accounts = vec![
+        AccountMeta::new(*authority, true),
+        AccountMeta::new(*raffle_account, false),
         AccountMeta::new_readonly(clock::id(), false),
     ];
 
